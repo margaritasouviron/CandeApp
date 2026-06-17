@@ -8,7 +8,8 @@
     "scheme": "candeapp",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.anonymous.candeApp"
     },
     "android": {
       "adaptiveIcon": {
@@ -17,6 +18,18 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "candeApp",
+      "shortName": "candeApp",
+      "description": "Gestión de cuidados en el hogar",
+      "themeColor": "#faf6f1",
+      "backgroundColor": "#faf6f1",
+      "display": "standalone",
+      "orientation": "portrait"
     },
     "plugins": [
       "expo-router",

@@ -8,9 +8,11 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { Redirect } from 'expo-router';
 import { useAuth } from '../lib/auth';
+import { Screen } from '../lib/screen';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { colors } from '../lib/theme';
 
@@ -34,15 +36,21 @@ export default function LoginScreen() {
     setLoading(true);
     const err = await signIn(email, password);
     setLoading(false);
-    if (err) setError('Credenciales incorrectas');
+    if (err) setError(err);
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.card}>
+    <Screen>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          bounces={false}
+        >
+          <View style={styles.card}>
         <Text style={styles.title}>candeApp</Text>
         <Text style={styles.subtitle}>Gestión de cuidados en el hogar</Text>
 
@@ -84,15 +92,19 @@ export default function LoginScreen() {
             <Text style={styles.buttonText}>Iniciar sesión</Text>
           )}
         </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },

@@ -25,9 +25,9 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "web": "expo start --web",
-    "build": "expo export -p web",
+    "start": "expo start --go",
+    "web": "expo start --web --go",
+    "build": "node scripts/check-env.js && expo export -p web",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },

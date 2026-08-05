@@ -11,6 +11,10 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="login" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="registro" />
+          <Stack.Screen name="day/[date]" />
+          <Stack.Screen name="stock" />
           <Stack.Screen name="dashboard" />
           <Stack.Screen name="care-log" />
         </Stack>

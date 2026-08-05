@@ -14,15 +14,23 @@ type ScreenProps = {
 export function Screen({ children, style, edges = ['top', 'left', 'right'], centered = true }: ScreenProps) {
   const { isWeb, contentMaxWidth } = useAppLayout();
 
-  const content = isWeb && centered && contentMaxWidth ? (
+  const inner = isWeb && centered && contentMaxWidth ? (
     <View style={[styles.webFrame, { maxWidth: contentMaxWidth }]}>{children}</View>
   ) : (
     children
   );
 
+  if (isWeb) {
+    return (
+      <View style={[styles.safe, styles.safeWeb, style]}>
+        {inner}
+      </View>
+    );
+  }
+
   return (
-    <SafeAreaView edges={edges} style={[styles.safe, isWeb && styles.safeWeb, style]}>
-      {content}
+    <SafeAreaView edges={edges} style={[styles.safe, style]}>
+      {inner}
     </SafeAreaView>
   );
 }
@@ -35,6 +43,7 @@ const styles = StyleSheet.create({
   safeWeb: {
     ...(Platform.OS === 'web'
       ? ({
+          flex: 1,
           minHeight: '100vh',
           width: '100%',
           alignItems: 'center',
@@ -46,6 +55,7 @@ const styles = StyleSheet.create({
     width: '100%',
     ...(Platform.OS === 'web'
       ? ({
+          flex: 1,
           minHeight: '100vh',
         } as object)
       : null),

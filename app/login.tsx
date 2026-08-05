@@ -13,18 +13,18 @@ import {
 import { Redirect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { Screen } from '../lib/screen';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured, getSupabaseConfigHint, getSupabaseConfigStatus } from '../lib/supabase';
 import { colors } from '../lib/theme';
 
 export default function LoginScreen() {
-  const { session, signIn } = useAuth();
+  const { session, signIn, initError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (session) {
-    return <Redirect href="/dashboard" />;
+    return <Redirect href="/(tabs)" />;
   }
 
   const handleLogin = async () => {
@@ -38,6 +38,8 @@ export default function LoginScreen() {
     setLoading(false);
     if (err) setError(err);
   };
+
+  const configStatus = getSupabaseConfigStatus();
 
   return (
     <Screen>
@@ -54,10 +56,18 @@ export default function LoginScreen() {
         <Text style={styles.title}>candeApp</Text>
         <Text style={styles.subtitle}>Gestión de cuidados en el hogar</Text>
 
+        {initError ? (
+          <View style={styles.warning}>
+            <Text style={styles.warningText}>{initError}</Text>
+          </View>
+        ) : null}
+
         {!isSupabaseConfigured && (
           <View style={styles.warning}>
-            <Text style={styles.warningText}>
-              Configura EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY en .env
+            <Text style={styles.warningText}>{getSupabaseConfigHint()}</Text>
+            <Text style={styles.warningSub}>
+              URL: {configStatus.urlPreview}{'\n'}
+              Key: {configStatus.keyLength > 0 ? `${configStatus.keyLength} caracteres` : 'vacía'}
             </Text>
           </View>
         )}
@@ -137,6 +147,12 @@ const styles = StyleSheet.create({
   warningText: {
     color: colors.brown,
     fontSize: 13,
+  },
+  warningSub: {
+    color: colors.brown,
+    fontSize: 12,
+    marginTop: 8,
+    opacity: 0.85,
   },
   label: {
     fontSize: 14,

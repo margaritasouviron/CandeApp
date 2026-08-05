@@ -1,19 +1,29 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import 'react-native-url-polyfill/auto';
+import { getSupabaseAnonKey, getSupabaseUrl, isSupabaseConfigured } from './env';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+export { isSupabaseConfigured, getSupabaseConfigHint, getSupabaseConfigStatus } from './env';
 
-export const isSupabaseConfigured =
-  supabaseUrl.length > 0 &&
-  supabaseAnonKey.length > 0 &&
-  !supabaseUrl.includes('your-project');
+const supabaseUrl = getSupabaseUrl();
+const supabaseAnonKey = getSupabaseAnonKey();
+const configured = isSupabaseConfigured();
 
-export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseAnonKey || 'placeholder', {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: isSupabaseConfigured,
-    persistSession: isSupabaseConfigured,
-  },
-});
+const authConfig = configured
+  ? {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: Platform.OS === 'web',
+      ...(Platform.OS !== 'web' ? { storage: AsyncStorage } : {}),
+    }
+  : {
+      autoRefreshToken: false,
+      persistSession: false,
+    };
+
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder',
+  { auth: authConfig }
+);

@@ -11,7 +11,10 @@ export default function Root({ children }: PropsWithChildren) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover"
         />
-        <meta name="theme-color" content="#faf6f1" />
+        <meta name="theme-color" content="#FFBACF" />
+        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/manifest.webmanifest" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -21,7 +24,7 @@ export default function Root({ children }: PropsWithChildren) {
             __html: `
               html, body, #root { height: 100%; width: 100%; margin: 0; }
               body {
-                background: #faf6f1;
+                background: #FFFBF7;
                 -webkit-text-size-adjust: 100%;
                 overscroll-behavior: none;
               }

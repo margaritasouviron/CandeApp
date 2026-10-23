@@ -1,7 +1,7 @@
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
   expo: {
-    name: 'candeApp',
+    name: 'Cande App',
     slug: 'candeApp',
     version: '1.0.0',
     orientation: 'portrait',
@@ -14,7 +14,7 @@ module.exports = {
     },
     android: {
       adaptiveIcon: {
-        backgroundColor: '#faf6f1',
+        backgroundColor: '#FFFBF7',
         foregroundImage: './assets/images/android-icon-foreground.png',
         backgroundImage: './assets/images/android-icon-background.png',
         monochromeImage: './assets/images/android-icon-monochrome.png',
@@ -24,11 +24,11 @@ module.exports = {
       bundler: 'metro',
       output: 'single',
       favicon: './assets/images/favicon.png',
-      name: 'candeApp',
-      shortName: 'candeApp',
+      name: 'Cande App',
+      shortName: 'Cande',
       description: 'Gestión de cuidados en el hogar',
-      themeColor: '#faf6f1',
-      backgroundColor: '#faf6f1',
+      themeColor: '#FFBACF',
+      backgroundColor: '#FFFBF7',
       display: 'standalone',
       orientation: 'portrait',
     },
@@ -39,7 +39,7 @@ module.exports = {
         {
           image: './assets/images/splash-icon.png',
           resizeMode: 'contain',
-          backgroundColor: '#faf6f1',
+          backgroundColor: '#FFFBF7',
         },
       ],
     ],

@@ -18,9 +18,11 @@ import { EVENT_LABELS, type EventType } from '../lib/eventTypes';
 import { refreshMedicationAlerts } from '../lib/medicationAlerts';
 import { Screen } from '../lib/screen';
 import { supabase } from '../lib/supabase';
+import { BackButton } from '../components/BackButton';
 import { colors } from '../lib/theme';
+import { fonts } from '../lib/typography';
 
-const REGISTRO_TIPOS = ['comida', 'medicacion', 'observacion', 'nota'] as const;
+const REGISTRO_TIPOS = ['comida', 'medicacion', 'observacion', 'nota', 'sueno'] as const;
 type RegistroTipo = (typeof REGISTRO_TIPOS)[number];
 
 type Prescription = {
@@ -83,6 +85,8 @@ export default function RegistroScreen() {
     return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
   });
   const [contenido, setContenido] = useState('');
+  const [sleepStart, setSleepStart] = useState('22:00');
+  const [sleepEnd, setSleepEnd] = useState('07:00');
   const [saving, setSaving] = useState(false);
 
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
@@ -286,6 +290,32 @@ export default function RegistroScreen() {
 
       if (tipo === 'medicacion') {
         await saveMedication(patient.id);
+      } else if (tipo === 'sueno') {
+        const inicio = parseTimeOnDate(paramDate, sleepStart);
+        let fin = parseTimeOnDate(paramDate, sleepEnd);
+        if (fin.getTime() <= inicio.getTime()) {
+          fin = new Date(fin.getTime() + 24 * 60 * 60 * 1000);
+        }
+
+        const { data: log, error: logError } = await supabase
+          .from('care_logs')
+          .insert({
+            patient_id: patient.id,
+            tipo: 'sueno',
+            registrado_por: session.user.id,
+            registrado_en: inicio.toISOString(),
+          })
+          .select('id')
+          .single();
+
+        if (logError) throw logError;
+
+        const { error: sleepError } = await supabase.from('sleep_entries').insert({
+          care_log_id: log.id,
+          inicio: inicio.toISOString(),
+          fin: fin.toISOString(),
+        });
+        if (sleepError) throw sleepError;
       } else {
         if (!contenido.trim()) {
           Alert.alert('Error', 'Escribe una descripción');
@@ -326,10 +356,12 @@ export default function RegistroScreen() {
       const successMessage =
         tipo === 'medicacion'
           ? `Medicación registrada. Próxima dosis: ${formatDateTime(proximaDosis.toISOString())}`
-          : 'Evento agregado correctamente';
+          : tipo === 'sueno'
+            ? `Sueño registrado (${sleepStart} – ${sleepEnd})`
+            : 'Evento agregado correctamente';
 
       router.replace({
-        pathname: '/(tabs)/bitacora',
+        pathname: '/(tabs)/calendar',
         params: { saved: '1', message: successMessage },
       });
     } catch {
@@ -342,9 +374,7 @@ export default function RegistroScreen() {
   return (
     <Screen>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Text style={styles.backText}>← Volver</Text>
-        </Pressable>
+        <BackButton />
         <Text style={styles.title}>{isConfirmMode ? 'Confirmar medicación' : 'Registro'}</Text>
         {paramDate ? <Text style={styles.sub}>Fecha: {paramDate}</Text> : null}
 
@@ -369,15 +399,19 @@ export default function RegistroScreen() {
           </>
         )}
 
-        <Text style={styles.label}>Hora</Text>
-        <TextInput
-          style={styles.input}
-          value={hora}
-          onChangeText={setHora}
-          placeholder="HH:MM"
-          placeholderTextColor={colors.textMuted}
-          editable={!isConfirmMode}
-        />
+        {tipo !== 'sueno' && (
+          <>
+            <Text style={styles.label}>Hora</Text>
+            <TextInput
+              style={styles.input}
+              value={hora}
+              onChangeText={setHora}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.textMuted}
+              editable={!isConfirmMode}
+            />
+          </>
+        )}
 
         {tipo === 'medicacion' ? (
           <View>
@@ -441,6 +475,26 @@ export default function RegistroScreen() {
               </View>
             )}
           </View>
+        ) : tipo === 'sueno' ? (
+          <>
+            <Text style={styles.label}>Durmió desde</Text>
+            <TextInput
+              style={styles.input}
+              value={sleepStart}
+              onChangeText={setSleepStart}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.label}>Hasta</Text>
+            <TextInput
+              style={styles.input}
+              value={sleepEnd}
+              onChangeText={setSleepEnd}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.hint}>Si termina al día siguiente, se calcula automáticamente.</Text>
+          </>
         ) : (
           <>
             <Text style={styles.label}>Notas</Text>
@@ -495,15 +549,20 @@ export default function RegistroScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: Platform.OS === 'web' ? 32 : 40 },
-  back: { marginBottom: 8 },
-  backText: { color: colors.blue, fontWeight: '600', fontSize: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: colors.blueDark },
-  sub: { color: colors.textMuted, marginBottom: 12, marginTop: 4 },
-  label: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8, marginTop: 12 },
+  title: { fontFamily: fonts.titleExtra, fontSize: 24, color: colors.text },
+  sub: { fontFamily: fonts.body, color: colors.textMuted, marginBottom: 12, marginTop: 4 },
+  label: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.text, marginBottom: 8, marginTop: 12 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.brownLight },
-  chipActive: { backgroundColor: colors.blue },
-  chipText: { color: colors.brown, fontWeight: '600' },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.pinkStrong,
+  },
+  chipActive: { backgroundColor: colors.pinkDeep, borderColor: colors.pinkDeep },
+  chipText: { fontFamily: fonts.bodySemi, color: colors.text, fontSize: 13 },
   chipTextActive: { color: colors.white },
   input: {
     borderWidth: 2,
@@ -540,21 +599,31 @@ const styles = StyleSheet.create({
   placeholder: { color: colors.textMuted },
   chevron: { color: colors.textMuted },
   saveBtn: {
-    backgroundColor: colors.blue,
-    borderRadius: 14,
-    paddingVertical: 14,
+    backgroundColor: colors.pinkDeep,
+    borderRadius: 10,
+    paddingVertical: 13,
     alignItems: 'center',
     marginTop: 24,
+    borderWidth: 1.5,
+    borderColor: colors.pinkDeep,
   },
-  saveBtnText: { color: colors.white, fontSize: 16, fontWeight: '600' },
+  saveBtnText: { fontFamily: fonts.title, color: colors.white, fontSize: 16 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%' },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: colors.blueDark, padding: 20 },
+  modalTitle: { fontFamily: fonts.title, fontSize: 18, color: colors.text, padding: 20 },
   modalRow: { paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
   modalRowText: { fontSize: 16, color: colors.text, fontWeight: '600' },
-  modalNew: { color: colors.blue },
-  modalClose: { margin: 20, paddingVertical: 14, alignItems: 'center', backgroundColor: colors.brownLight, borderRadius: 14 },
-  modalCloseText: { color: colors.brown, fontWeight: '600' },
+  modalNew: { color: colors.pinkDeep },
+  modalClose: {
+    margin: 20,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.pinkStrong,
+  },
+  modalCloseText: { fontFamily: fonts.bodySemi, color: colors.pinkDeep },
   hint: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
   nextDoseBox: {
     marginTop: 12,

@@ -9,9 +9,11 @@ import {
   type UpcomingDose,
 } from '../lib/medicationSchedules';
 import { colors } from '../lib/theme';
+import { fonts } from '../lib/typography';
 
 type Props = {
   dose: UpcomingDose;
+  muted?: boolean;
   showConfirm?: boolean;
   showDelete?: boolean;
   onConfirm?: () => void;
@@ -20,6 +22,7 @@ type Props = {
 
 export function UpcomingDoseCard({
   dose,
+  muted = false,
   showConfirm = true,
   showDelete,
   onConfirm,
@@ -46,7 +49,7 @@ export function UpcomingDoseCard({
 
   return (
     <>
-      <View style={[styles.card, overdue && styles.cardOverdue]}>
+      <View style={[styles.card, muted && styles.cardMuted, overdue && styles.cardOverdue]}>
         <View style={styles.topRight} pointerEvents="box-none">
           <Text style={[styles.badge, overdue && styles.badgeOverdue]}>{doseStatusLabel(dose.status)}</Text>
           {showDelete && (
@@ -112,7 +115,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderLeftWidth: 4,
-    borderLeftColor: colors.blue,
+    borderLeftColor: colors.greenDark,
+  },
+  cardMuted: {
+    backgroundColor: colors.upcomingMuted,
+    borderColor: colors.pink,
+    borderLeftColor: 'rgba(56, 189, 248, 0.5)',
+    opacity: 0.88,
   },
   cardOverdue: {
     borderLeftColor: colors.error,
@@ -150,7 +159,7 @@ const styles = StyleSheet.create({
   time: { fontSize: 14, fontWeight: '700', color: colors.blue, marginBottom: 6, paddingRight: 88 },
   badge: { fontSize: 11, fontWeight: '700', color: colors.blue, textTransform: 'uppercase' },
   badgeOverdue: { color: colors.error },
-  name: { fontSize: 16, fontWeight: '700', color: colors.text },
+  name: { fontFamily: fonts.title, fontSize: 16, color: colors.text },
   line: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   confirmBtn: {
     width: 52,

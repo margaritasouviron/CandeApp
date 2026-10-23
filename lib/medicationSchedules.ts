@@ -105,10 +105,7 @@ export async function deleteUpcomingDoseAndFollowing(dose: UpcomingDose) {
 }
 
 export function deleteUpcomingDoseMessage(dose: UpcomingDose) {
-  return (
-    `¿Confirmás que deseás suspender el suministro de ${dose.nombre} programado para ${formatDoseTime(dose.programadoPara)}?\n\n` +
-    'Se eliminarán también todos los suministros posteriores de esta medicación.'
-  );
+  return `¿Confirmás que deseás suspender el suministro de ${dose.nombre} programado para ${formatDoseTime(dose.programadoPara)}?`;
 }
 
 /** Parámetros para abrir registro con medicación precargada (confirmar dosis). */

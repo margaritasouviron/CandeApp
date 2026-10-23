@@ -14,6 +14,7 @@ import { fetchDayEvents, type DayEvent } from '../../lib/careEvents';
 import { EVENT_LABELS, type EventType } from '../../lib/eventTypes';
 import { getPatient } from '../../lib/patientContext';
 import { useAuth } from '../../lib/auth';
+import { BackButton } from '../../components/BackButton';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
 
@@ -67,9 +68,7 @@ export default function DayDetailScreen() {
   return (
     <Screen>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Text style={styles.backText}>← Volver</Text>
-        </Pressable>
+        <BackButton />
         <Text style={styles.title}>{formatDateHeader(date)}</Text>
 
         {loading ? (

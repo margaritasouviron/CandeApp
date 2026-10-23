@@ -1,11 +1,15 @@
 import { Redirect, Tabs } from 'expo-router';
-import { Platform, Text } from 'react-native';
+import { Platform } from 'react-native';
 import { useAuth } from '../../lib/auth';
+import {
+  TabIconCalendar,
+  TabIconHome,
+  TabIconStats,
+  TabIconStock,
+  tabColors,
+} from '../../components/TabIcons';
 import { colors } from '../../lib/theme';
-
-function TabEmoji({ emoji }: { emoji: string }) {
-  return <Text style={{ fontSize: 20 }}>{emoji}</Text>;
-}
+import { fonts } from '../../lib/typography';
 
 export default function TabsLayout() {
   const { session, loading } = useAuth();
@@ -18,22 +22,35 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.blue,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveTintColor: tabColors.active,
+        tabBarInactiveTintColor: tabColors.inactive,
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
+          borderTopWidth: 2,
           paddingBottom: Platform.OS === 'ios' ? 4 : 8,
           height: Platform.OS === 'ios' ? 88 : 64,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontFamily: fonts.bodySemi, fontSize: 11 },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: () => <TabEmoji emoji="🏠" /> }} />
-      <Tabs.Screen name="stats" options={{ title: 'Stats', tabBarIcon: () => <TabEmoji emoji="📊" /> }} />
-      <Tabs.Screen name="calendar" options={{ title: 'Calendario', tabBarIcon: () => <TabEmoji emoji="📅" /> }} />
-      <Tabs.Screen name="stock" options={{ title: 'Stock', tabBarIcon: () => <TabEmoji emoji="📦" /> }} />
-      <Tabs.Screen name="bitacora" options={{ title: 'Bitácora', tabBarIcon: () => <TabEmoji emoji="📋" /> }} />
+      <Tabs.Screen
+        name="index"
+        options={{ title: 'Home', tabBarIcon: ({ color }) => <TabIconHome color={color} /> }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{ title: 'Stats', tabBarIcon: ({ color }) => <TabIconStats color={color} /> }}
+      />
+      <Tabs.Screen
+        name="calendar"
+        options={{ title: 'Calendario', tabBarIcon: ({ color }) => <TabIconCalendar color={color} /> }}
+      />
+      <Tabs.Screen
+        name="stock"
+        options={{ title: 'Stock', tabBarIcon: ({ color }) => <TabIconStock color={color} /> }}
+      />
+      <Tabs.Screen name="bitacora" options={{ href: null }} />
     </Tabs>
   );
 }

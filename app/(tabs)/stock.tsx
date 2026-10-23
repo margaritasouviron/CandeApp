@@ -3,24 +3,27 @@ import {
   View,
   Text,
   ScrollView,
-  Pressable,
   ActivityIndicator,
   RefreshControl,
   StyleSheet,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StockBar } from '../../components/StockBar';
 import { TabHeader } from '../../components/TabHeader';
+import { FloatingActionButton } from '../../components/FloatingActionButton';
 import { fetchInventory, type InventoryItem } from '../../lib/inventory';
 import { getPatient } from '../../lib/patientContext';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
+import { fonts } from '../../lib/typography';
 
 export default function StockScreen() {
   const router = useRouter();
+  const { saved, message } = useLocalSearchParams<{ saved?: string; message?: string }>();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,70 +43,86 @@ export default function StockScreen() {
     load();
   }, [load]);
 
-  const lowCount = items.filter((i) => i.cantidad_actual <= i.cantidad_minima).length;
+  useEffect(() => {
+    if (saved === '1' && message) {
+      setToast(message);
+      load();
+      const timer = setTimeout(() => setToast(null), 5000);
+      router.setParams({ saved: undefined, message: undefined });
+      return () => clearTimeout(timer);
+    }
+  }, [saved, message, router, load]);
+
+  const lowCount = items.filter((i) =>
+    Number(i.cantidad_minima) > 0
+      ? Number(i.cantidad_actual) < Number(i.cantidad_minima)
+      : Number(i.cantidad_actual) <= 0
+  ).length;
 
   return (
     <Screen>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.blue} />}
-      >
-        <TabHeader
-          title="Stock"
-          subtitle={lowCount > 0 ? `${lowCount} alerta(s) de stock bajo` : 'Inventario de insumos'}
-        />
-
-        {loading && items.length === 0 ? (
-          <ActivityIndicator color={colors.blue} style={{ marginTop: 24 }} />
-        ) : items.length === 0 ? (
-          <Text style={styles.empty}>
-            No hay ítems en inventario. Agregá una compra para crear el primer ítem (requiere perfil administrador).
-          </Text>
-        ) : (
-          items.map((item) => (
-            <View key={item.id} style={styles.itemWrap}>
-              <StockBar
-                nombre={item.nombre}
-                actual={Number(item.cantidad_actual)}
-                minima={Number(item.cantidad_minima)}
-                unidad={item.unidad}
-              />
-            </View>
-          ))
-        )}
-
-        <Pressable
-          style={[styles.fab, Platform.OS === 'web' && styles.fabWeb]}
-          onPress={() => router.push('/stock/add-purchase')}
+      <View style={styles.flex}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.greenDark} />}
         >
-          <Text style={styles.fabText}>+ Agregar compra</Text>
-        </Pressable>
-      </ScrollView>
+          <TabHeader
+            title="Stock"
+            subtitle={lowCount > 0 ? `${lowCount} alerta(s) de stock bajo` : 'Inventario de insumos'}
+          />
+
+          {toast ? (
+            <View style={styles.toast}>
+              <Text style={styles.toastText}>✓ {toast}</Text>
+            </View>
+          ) : null}
+
+          {loading && items.length === 0 ? (
+            <ActivityIndicator color={colors.greenDark} style={{ marginTop: 24 }} />
+          ) : items.length === 0 ? (
+            <Text style={styles.empty}>
+              No hay ítems en inventario. Agregá una compra para crear el primer ítem.
+            </Text>
+          ) : (
+            <View style={styles.list}>
+              {items.map((item) => (
+                <StockBar
+                  key={item.id}
+                  nombre={item.nombre}
+                  actual={Number(item.cantidad_actual)}
+                  minima={Number(item.cantidad_minima)}
+                  unidad={item.unidad}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
+
+        <FloatingActionButton
+          label="Compra"
+          onPress={() => router.push('/stock/add-purchase')}
+          bottomOffset={56}
+        />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: { flex: 1 },
-  content: { paddingBottom: Platform.OS === 'web' ? 100 : 120 },
-  itemWrap: { paddingHorizontal: 20 },
-  empty: { color: colors.textMuted, paddingHorizontal: 20, lineHeight: 22 },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    left: 20,
-    right: 20,
-    backgroundColor: colors.blue,
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  fabWeb: {
-    position: 'relative',
+  content: { paddingBottom: Platform.OS === 'web' ? 120 : 140 },
+  toast: {
     marginHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 32,
+    marginBottom: 16,
+    backgroundColor: '#dcfce7',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.green,
   },
-  fabText: { color: colors.white, fontSize: 17, fontWeight: '700' },
+  toastText: { fontFamily: fonts.bodySemi, color: colors.greenDark, fontSize: 14 },
+  list: { paddingHorizontal: 20 },
+  empty: { fontFamily: fonts.body, color: colors.textMuted, paddingHorizontal: 20, lineHeight: 22 },
 });

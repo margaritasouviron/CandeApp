@@ -10,20 +10,14 @@ import {
   Platform,
 } from 'react-native';
 import { TabHeader } from '../../components/TabHeader';
+import { SleepWeekChart } from '../../components/SleepWeekChart';
 import { getPatient } from '../../lib/patientContext';
 import { Screen } from '../../lib/screen';
 import { buildMedicalReport, fetchStats, type StatsSummary } from '../../lib/stats';
+import { fetchWeeklySleepStats } from '../../lib/sleepStats';
 import { EVENT_LABELS, type EventType } from '../../lib/eventTypes';
 import { colors } from '../../lib/theme';
-
-function StatBlock({ label, value }: { label: string; value: string | number }) {
-  return (
-    <View style={styles.block}>
-      <Text style={styles.blockLabel}>{label}</Text>
-      <Text style={styles.blockValue}>{value}</Text>
-    </View>
-  );
-}
+import { fonts } from '../../lib/typography';
 
 function BarRow({ label, count, max }: { label: string; count: number; max: number }) {
   const pct = max > 0 ? (count / max) * 100 : 0;
@@ -40,6 +34,8 @@ function BarRow({ label, count, max }: { label: string; count: number; max: numb
 
 export default function StatsScreen() {
   const [stats, setStats] = useState<StatsSummary | null>(null);
+  const [sleepAvg, setSleepAvg] = useState(0);
+  const [sleepDays, setSleepDays] = useState<Awaited<ReturnType<typeof fetchWeeklySleepStats>>['days']>([]);
   const [patientName, setPatientName] = useState('Paciente');
   const [loading, setLoading] = useState(true);
 
@@ -49,7 +45,13 @@ export default function StatsScreen() {
       const patient = await getPatient();
       if (!patient) return;
       setPatientName(patient.nombre);
-      setStats(await fetchStats(patient.id));
+      const [s, sleep] = await Promise.all([
+        fetchStats(patient.id),
+        fetchWeeklySleepStats(patient.id),
+      ]);
+      setStats(s);
+      setSleepDays(sleep.days);
+      setSleepAvg(sleep.averageHours);
     } finally {
       setLoading(false);
     }
@@ -74,15 +76,13 @@ export default function StatsScreen() {
         <TabHeader title="Estadísticas" subtitle="Resumen del mes" />
 
         {loading ? (
-          <ActivityIndicator color={colors.blue} style={{ marginTop: 32 }} />
+          <ActivityIndicator color={colors.greenDark} style={{ marginTop: 32 }} />
         ) : !stats ? (
           <Text style={styles.empty}>Sin datos de paciente</Text>
         ) : (
           <>
-            <View style={styles.row}>
-              <StatBlock label="Esta semana" value={stats.weekEvents} />
-              <StatBlock label="Este mes" value={stats.monthEvents} />
-            </View>
+            <Text style={styles.section}>Sueño (últimos 7 días)</Text>
+            <SleepWeekChart days={sleepDays} averageHours={sleepAvg} />
 
             <Text style={styles.section}>Eventos por categoría</Text>
             {Object.entries(stats.byCategory).map(([k, v]) => (
@@ -120,31 +120,29 @@ export default function StatsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingBottom: Platform.OS === 'web' ? 32 : 24 },
-  row: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 8 },
-  block: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
+  section: {
+    fontFamily: fonts.title,
+    fontSize: 17,
+    color: colors.text,
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 12,
   },
-  blockLabel: { fontSize: 13, color: colors.textMuted },
-  blockValue: { fontSize: 28, fontWeight: '700', color: colors.blue, marginTop: 4 },
-  section: { fontSize: 17, fontWeight: '700', color: colors.text, marginHorizontal: 20, marginTop: 20, marginBottom: 12 },
   barRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 10, gap: 8 },
-  barLabel: { width: 90, fontSize: 13, color: colors.text },
-  barTrack: { flex: 1, height: 12, backgroundColor: colors.brownLight, borderRadius: 6, overflow: 'hidden' },
-  barFill: { height: '100%', backgroundColor: colors.blue, borderRadius: 6 },
-  barCount: { width: 24, textAlign: 'right', fontWeight: '700', color: colors.textMuted },
-  empty: { color: colors.textMuted, paddingHorizontal: 20, marginTop: 8 },
+  barLabel: { width: 90, fontFamily: fonts.body, fontSize: 13, color: colors.text },
+  barTrack: { flex: 1, height: 12, backgroundColor: colors.pink, borderRadius: 6, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: colors.green, borderRadius: 6 },
+  barCount: { width: 24, textAlign: 'right', fontFamily: fonts.bodySemi, color: colors.textMuted },
+  empty: { fontFamily: fonts.body, color: colors.textMuted, paddingHorizontal: 20, marginTop: 8 },
   reportBtn: {
     marginHorizontal: 20,
     marginTop: 28,
-    backgroundColor: colors.blue,
-    borderRadius: 16,
-    paddingVertical: 16,
+    marginBottom: 12,
+    backgroundColor: colors.pinkDeep,
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     alignItems: 'center',
   },
-  reportBtnText: { color: colors.white, fontSize: 17, fontWeight: '700' },
+  reportBtnText: { fontFamily: fonts.title, color: colors.white, fontSize: 16 },
 });

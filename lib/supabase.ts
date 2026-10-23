@@ -10,12 +10,25 @@ const supabaseUrl = getSupabaseUrl();
 const supabaseAnonKey = getSupabaseAnonKey();
 const configured = isSupabaseConfigured();
 
+const webStorage = {
+  getItem: (key: string) => {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(key);
+  },
+  setItem: (key: string, value: string) => {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+  },
+  removeItem: (key: string) => {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+  },
+};
+
 const authConfig = configured
   ? {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: Platform.OS === 'web',
-      ...(Platform.OS !== 'web' ? { storage: AsyncStorage } : {}),
+      storage: Platform.OS === 'web' ? webStorage : AsyncStorage,
     }
   : {
       autoRefreshToken: false,

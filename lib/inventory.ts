@@ -7,16 +7,28 @@ export type InventoryItem = {
   cantidad_actual: number;
   cantidad_minima: number;
   unidad: string;
+  prescription_id?: string | null;
 };
 
 export async function fetchInventory(patientId: string) {
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, nombre, categoria, cantidad_actual, cantidad_minima, unidad')
+    .select('id, nombre, categoria, cantidad_actual, cantidad_minima, unidad, prescription_id')
     .eq('patient_id', patientId)
     .order('nombre');
   if (error) throw error;
   return (data ?? []) as InventoryItem[];
+}
+
+export async function findPrescriptionByName(patientId: string, nombre: string) {
+  const { data } = await supabase
+    .from('medication_prescriptions')
+    .select('id')
+    .eq('patient_id', patientId)
+    .eq('activo', true)
+    .ilike('nombre', nombre.trim())
+    .maybeSingle();
+  return data?.id as string | undefined;
 }
 
 export async function addPurchase(params: {
@@ -27,7 +39,7 @@ export async function addPurchase(params: {
   notas?: string;
   userId: string;
 }) {
-  const { error: pErr } = await supabase.from('inventory_purchases').insert({
+  const { error } = await supabase.from('inventory_purchases').insert({
     item_id: params.itemId,
     cantidad: params.cantidad,
     unidad: params.unidad,
@@ -35,20 +47,8 @@ export async function addPurchase(params: {
     notas: params.notas?.trim() || null,
     registrado_por: params.userId,
   });
-  if (pErr) throw pErr;
-
-  const { data: item } = await supabase
-    .from('inventory_items')
-    .select('cantidad_actual')
-    .eq('id', params.itemId)
-    .single();
-
-  const nueva = Number(item?.cantidad_actual ?? 0) + params.cantidad;
-  const { error: uErr } = await supabase
-    .from('inventory_items')
-    .update({ cantidad_actual: nueva })
-    .eq('id', params.itemId);
-  if (uErr) throw uErr;
+  if (error) throw error;
+  // El trigger apply_inventory_purchase actualiza cantidad_actual.
 }
 
 export async function createInventoryItem(params: {
@@ -58,16 +58,18 @@ export async function createInventoryItem(params: {
   cantidad: number;
   minima: number;
   unidad: string;
+  prescriptionId?: string;
 }) {
   const { data, error } = await supabase
     .from('inventory_items')
     .insert({
       patient_id: params.patientId,
       nombre: params.nombre.trim(),
-      categoria: params.categoria?.trim() || null,
+      categoria: params.categoria?.trim() || (params.prescriptionId ? 'medicacion' : null),
       cantidad_actual: params.cantidad,
       cantidad_minima: params.minima,
       unidad: params.unidad.trim(),
+      prescription_id: params.prescriptionId ?? null,
     })
     .select('id')
     .single();
@@ -75,9 +77,12 @@ export async function createInventoryItem(params: {
   return data.id as string;
 }
 
-export async function consumeStock(itemId: string, amount: number) {
-  const { data: item } = await supabase.from('inventory_items').select('cantidad_actual').eq('id', itemId).single();
-  const nueva = Math.max(0, Number(item?.cantidad_actual ?? 0) - amount);
-  const { error } = await supabase.from('inventory_items').update({ cantidad_actual: nueva }).eq('id', itemId);
+export async function getInventoryItem(itemId: string) {
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('id, nombre, cantidad_actual, cantidad_minima, unidad')
+    .eq('id', itemId)
+    .single();
   if (error) throw error;
+  return data;
 }

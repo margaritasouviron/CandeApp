@@ -5,6 +5,7 @@ export const EVENT_TYPES = [
   'higiene',
   'observacion',
   'nota',
+  'sueno',
   'otro',
 ] as const;
 
@@ -17,15 +18,20 @@ export const EVENT_LABELS: Record<EventType, string> = {
   higiene: 'Higiene',
   observacion: 'Observación',
   nota: 'Nota',
+  sueno: 'Sueño',
   otro: 'Otro',
 };
 
+/** Acentos alegres y vibrantes */
 export const EVENT_COLORS: Record<EventType, string> = {
-  comida: '#8f6844',
-  medicacion: '#2d5280',
-  signos_vitales: '#dc2626',
-  higiene: '#0d9488',
-  observacion: '#735339',
-  nota: '#a16207',
-  otro: '#64748b',
+  comida: '#FB923C',
+  medicacion: '#38BDF8',
+  signos_vitales: '#F472B6',
+  higiene: '#2DD4BF',
+  observacion: '#A78BFA',
+  nota: '#FACC15',
+  sueno: '#A3E635',
+  otro: '#94A3B8',
 };
+
+export const SCHEDULED_MUTED = 'rgba(56, 189, 248, 0.35)';

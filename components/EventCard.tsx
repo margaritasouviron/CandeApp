@@ -1,18 +1,21 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { EVENT_COLORS, EVENT_LABELS, type EventType } from '../lib/eventTypes';
 import { colors } from '../lib/theme';
+import { fonts } from '../lib/typography';
 
 type Props = {
   tipo: string;
   time: string;
   title: string;
   subtitle?: string;
+  /** Sin caja — solo texto y punto de color */
+  plain?: boolean;
 };
 
-export function EventCard({ tipo, time, title, subtitle }: Props) {
+export function EventCard({ tipo, time, title, subtitle, plain }: Props) {
   const color = EVENT_COLORS[tipo as EventType] ?? colors.textMuted;
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, plain && styles.cardPlain]}>
       <View style={[styles.dot, { backgroundColor: color }]} />
       <View style={styles.body}>
         <Text style={styles.time}>{time}</Text>
@@ -34,10 +37,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  cardPlain: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 6,
+    marginBottom: 2,
+  },
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: 6, marginRight: 12 },
   body: { flex: 1 },
-  time: { fontSize: 13, fontWeight: '700', color: colors.blue },
-  title: { fontSize: 15, fontWeight: '600', color: colors.text, marginTop: 2 },
-  sub: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
-  badge: { fontSize: 12, fontWeight: '600', marginTop: 6 },
+  time: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.greenDark },
+  title: { fontFamily: fonts.title, fontSize: 15, color: colors.text, marginTop: 2 },
+  sub: { fontFamily: fonts.body, fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  badge: { fontFamily: fonts.body, fontSize: 12, marginTop: 6 },
 });

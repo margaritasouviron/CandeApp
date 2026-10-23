@@ -6,16 +6,23 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
-  Alert,
   StyleSheet,
   Platform,
 } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useAuth } from '../../lib/auth';
-import { addPurchase, createInventoryItem, fetchInventory, type InventoryItem } from '../../lib/inventory';
+import {
+  addPurchase,
+  createInventoryItem,
+  fetchInventory,
+  findPrescriptionByName,
+  type InventoryItem,
+} from '../../lib/inventory';
 import { getPatient } from '../../lib/patientContext';
+import { BackButton } from '../../components/BackButton';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
+import { fonts } from '../../lib/typography';
 
 const NEW_ITEM = '__new__';
 
@@ -31,6 +38,7 @@ export default function AddPurchaseScreen() {
   const [notas, setNotas] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const isOrganizador = role === 'organizador';
   const isNew = selectedId === NEW_ITEM;
@@ -66,9 +74,10 @@ export default function AddPurchaseScreen() {
   if (!session) return <Redirect href="/login" />;
 
   const handleSave = async () => {
+    setErrorMsg(null);
     const qty = parseFloat(cantidad.replace(',', '.'));
     if (!Number.isFinite(qty) || qty <= 0) {
-      Alert.alert('Error', 'Indica una cantidad válida');
+      setErrorMsg('Indica una cantidad válida');
       return;
     }
 
@@ -76,29 +85,38 @@ export default function AddPurchaseScreen() {
     try {
       const patient = await getPatient();
       if (!patient) {
-        Alert.alert('Error', 'No hay paciente configurado');
+        setErrorMsg('No hay paciente configurado');
         return;
       }
 
       let itemId = selectedId;
+      let itemName = items.find((i) => i.id === selectedId)?.nombre ?? nombre.trim();
 
       if (isNew) {
         if (!isOrganizador) {
-          Alert.alert('Error', 'Solo la administradora puede crear ítems nuevos');
+          setErrorMsg('Solo la administradora puede crear ítems nuevos');
           return;
         }
         if (!nombre.trim()) {
-          Alert.alert('Error', 'Indica el nombre del ítem');
+          setErrorMsg('Indica el nombre del ítem');
           return;
         }
         const min = parseFloat(minima.replace(',', '.'));
+        const prescriptionId = await findPrescriptionByName(patient.id, nombre.trim());
         itemId = await createInventoryItem({
           patientId: patient.id,
           nombre: nombre.trim(),
           cantidad: 0,
           minima: Number.isFinite(min) ? min : 0,
           unidad: unidad.trim() || 'unidad',
+          prescriptionId,
         });
+        itemName = nombre.trim();
+      }
+
+      if (!itemId || itemId === NEW_ITEM) {
+        setErrorMsg('Selecciona un ítem');
+        return;
       }
 
       await addPurchase({
@@ -110,9 +128,20 @@ export default function AddPurchaseScreen() {
         userId: session.user.id,
       });
 
-      Alert.alert('Listo', 'Compra registrada', [{ text: 'OK', onPress: () => router.back() }]);
+      router.replace({
+        pathname: '/(tabs)/stock',
+        params: {
+          saved: '1',
+          message: `Compra registrada: ${qty} ${unidad.trim() || 'unidad'} de ${itemName}`,
+        },
+      });
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo guardar');
+      const msg = e instanceof Error ? e.message : 'No se pudo guardar';
+      if (msg.includes('inventory') || msg.includes('does not exist')) {
+        setErrorMsg('Falta aplicar las migraciones de inventario (008 y 010) en Supabase.');
+      } else {
+        setErrorMsg(msg);
+      }
     } finally {
       setSaving(false);
     }
@@ -121,10 +150,14 @@ export default function AddPurchaseScreen() {
   return (
     <Screen>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Text style={styles.backText}>← Volver</Text>
-        </Pressable>
+        <BackButton />
         <Text style={styles.title}>Agregar compra</Text>
+
+        {errorMsg ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{errorMsg}</Text>
+          </View>
+        ) : null}
 
         {loading ? (
           <ActivityIndicator color={colors.blue} style={{ marginTop: 24 }} />
@@ -145,35 +178,61 @@ export default function AddPurchaseScreen() {
                 </Pressable>
               ))}
               {isOrganizador && (
-                <Pressable
-                  style={[styles.chip, isNew && styles.chipOn]}
-                  onPress={() => setSelectedId(NEW_ITEM)}
-                >
+                <Pressable style={[styles.chip, isNew && styles.chipOn]} onPress={() => setSelectedId(NEW_ITEM)}>
                   <Text style={[styles.chipText, isNew && styles.chipTextOn]}>+ Nuevo</Text>
                 </Pressable>
               )}
             </View>
 
+            {items.length === 0 && !isOrganizador && (
+              <Text style={styles.hint}>No hay ítems. Pedí a la administradora que cree el primero.</Text>
+            )}
+
             {isNew && (
               <>
                 <Text style={styles.label}>Nombre</Text>
-                <TextInput style={styles.input} value={nombre} onChangeText={setNombre} placeholder="Ej. Pañales" placeholderTextColor={colors.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  value={nombre}
+                  onChangeText={setNombre}
+                  placeholder="Ej. Paracetamol o Pañales"
+                  placeholderTextColor={colors.textMuted}
+                />
                 <Text style={styles.label}>Stock mínimo (alerta)</Text>
-                <TextInput style={styles.input} value={minima} onChangeText={setMinima} keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  value={minima}
+                  onChangeText={setMinima}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={colors.textMuted}
+                />
               </>
             )}
 
-            <Text style={styles.label}>Cantidad</Text>
-            <TextInput style={styles.input} value={cantidad} onChangeText={setCantidad} keyboardType="decimal-pad" placeholder="Ej. 30" placeholderTextColor={colors.textMuted} />
+            <Text style={styles.label}>Cantidad comprada</Text>
+            <TextInput
+              style={styles.input}
+              value={cantidad}
+              onChangeText={setCantidad}
+              keyboardType="decimal-pad"
+              placeholder="Ej. 30"
+              placeholderTextColor={colors.textMuted}
+            />
 
             <Text style={styles.label}>Unidad de medida</Text>
-            <TextInput style={styles.input} value={unidad} onChangeText={setUnidad} placeholder="unidad, mg, ml…" placeholderTextColor={colors.textMuted} />
+            <TextInput
+              style={styles.input}
+              value={unidad}
+              onChangeText={setUnidad}
+              placeholder="unidad, comprimido, ml…"
+              placeholderTextColor={colors.textMuted}
+            />
 
             <Text style={styles.label}>Notas (opcional)</Text>
             <TextInput style={styles.input} value={notas} onChangeText={setNotas} placeholderTextColor={colors.textMuted} />
 
             <Pressable style={styles.saveBtn} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveBtnText}>Listo</Text>}
+              {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveBtnText}>Confirmar compra</Text>}
             </Pressable>
           </>
         )}
@@ -185,15 +244,21 @@ export default function AddPurchaseScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: Platform.OS === 'web' ? 32 : 40 },
-  back: { marginBottom: 8 },
-  backText: { color: colors.blue, fontWeight: '600', fontSize: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: colors.blueDark, marginBottom: 8 },
-  label: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8, marginTop: 12 },
+  title: { fontFamily: fonts.titleExtra, fontSize: 24, color: colors.text, marginBottom: 8 },
+  label: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.text, marginBottom: 8, marginTop: 12 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.brownLight },
-  chipOn: { backgroundColor: colors.blue },
-  chipText: { fontSize: 13, fontWeight: '600', color: colors.brown },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.pinkStrong,
+  },
+  chipOn: { backgroundColor: colors.pinkDeep, borderColor: colors.pinkDeep },
+  chipText: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.text },
   chipTextOn: { color: colors.white },
+  hint: { fontSize: 13, color: colors.textMuted, marginTop: 8 },
   input: {
     borderWidth: 2,
     borderColor: colors.border,
@@ -204,12 +269,21 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.white,
   },
+  errorBox: {
+    backgroundColor: '#fef2f2',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: { color: colors.error, fontSize: 14 },
   saveBtn: {
-    backgroundColor: colors.blue,
-    borderRadius: 14,
-    paddingVertical: 14,
+    backgroundColor: colors.pinkDeep,
+    borderRadius: 10,
+    paddingVertical: 13,
     alignItems: 'center',
     marginTop: 24,
   },
-  saveBtnText: { color: colors.white, fontSize: 16, fontWeight: '600' },
+  saveBtnText: { fontFamily: fonts.title, color: colors.white, fontSize: 16 },
 });

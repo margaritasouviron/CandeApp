@@ -10,6 +10,11 @@ export type InventoryItem = {
   prescription_id?: string | null;
 };
 
+/** Clave de comparación: ignora mayúsculas y espacios extra. */
+export function normalizeInventoryName(nombre: string) {
+  return nombre.trim().toLowerCase();
+}
+
 export async function fetchInventory(patientId: string) {
   const { data, error } = await supabase
     .from('inventory_items')
@@ -18,6 +23,13 @@ export async function fetchInventory(patientId: string) {
     .order('nombre');
   if (error) throw error;
   return (data ?? []) as InventoryItem[];
+}
+
+export async function findInventoryItemByName(patientId: string, nombre: string) {
+  const key = normalizeInventoryName(nombre);
+  if (!key) return undefined;
+  const list = await fetchInventory(patientId);
+  return list.find((item) => normalizeInventoryName(item.nombre) === key);
 }
 
 export async function findPrescriptionByName(patientId: string, nombre: string) {
@@ -60,6 +72,11 @@ export async function createInventoryItem(params: {
   unidad: string;
   prescriptionId?: string;
 }) {
+  const existing = await findInventoryItemByName(params.patientId, params.nombre);
+  if (existing) {
+    return existing.id;
+  }
+
   const { data, error } = await supabase
     .from('inventory_items')
     .insert({
@@ -85,4 +102,16 @@ export async function getInventoryItem(itemId: string) {
     .single();
   if (error) throw error;
   return data;
+}
+
+/** Ajuste manual del stock (p. ej. consumo no registrado). Solo organizadora en la UI. */
+export async function updateInventoryStock(itemId: string, cantidadActual: number) {
+  if (!Number.isFinite(cantidadActual) || cantidadActual < 0) {
+    throw new Error('Indica una cantidad válida (0 o más)');
+  }
+  const { error } = await supabase
+    .from('inventory_items')
+    .update({ cantidad_actual: cantidadActual })
+    .eq('id', itemId);
+  if (error) throw error;
 }

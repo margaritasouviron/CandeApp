@@ -15,6 +15,7 @@ import {
   addPurchase,
   createInventoryItem,
   fetchInventory,
+  findInventoryItemByName,
   findPrescriptionByName,
   type InventoryItem,
 } from '../../lib/inventory';
@@ -101,17 +102,24 @@ export default function AddPurchaseScreen() {
           setErrorMsg('Indica el nombre del ítem');
           return;
         }
+        const trimmedName = nombre.trim();
         const min = parseFloat(minima.replace(',', '.'));
-        const prescriptionId = await findPrescriptionByName(patient.id, nombre.trim());
-        itemId = await createInventoryItem({
-          patientId: patient.id,
-          nombre: nombre.trim(),
-          cantidad: 0,
-          minima: Number.isFinite(min) ? min : 0,
-          unidad: unidad.trim() || 'unidad',
-          prescriptionId,
-        });
-        itemName = nombre.trim();
+        const prescriptionId = await findPrescriptionByName(patient.id, trimmedName);
+        const existingItem = await findInventoryItemByName(patient.id, trimmedName);
+        if (existingItem) {
+          itemId = existingItem.id;
+          itemName = existingItem.nombre;
+        } else {
+          itemId = await createInventoryItem({
+            patientId: patient.id,
+            nombre: trimmedName,
+            cantidad: 0,
+            minima: Number.isFinite(min) ? min : 0,
+            unidad: unidad.trim() || 'unidad',
+            prescriptionId,
+          });
+          itemName = trimmedName;
+        }
       }
 
       if (!itemId || itemId === NEW_ITEM) {

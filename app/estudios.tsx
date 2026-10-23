@@ -22,6 +22,7 @@ import {
 } from '../lib/medicalStudies';
 import { getPatient } from '../lib/patientContext';
 import { BackButton } from '../components/BackButton';
+import { FloatingActionButton } from '../components/FloatingActionButton';
 import { Screen } from '../lib/screen';
 import { colors } from '../lib/theme';
 import { fonts } from '../lib/typography';
@@ -179,6 +180,7 @@ export default function EstudiosScreen() {
 
   return (
     <Screen>
+      <View style={styles.flex}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <BackButton />
         <Text style={styles.screenTitle}>Estudios médicos</Text>
@@ -226,10 +228,6 @@ export default function EstudiosScreen() {
             <Text style={styles.clearDates}>Quitar filtro de fechas</Text>
           </Pressable>
         )}
-
-        <Pressable style={styles.addToggle} onPress={() => setAddOpen((v) => !v)}>
-          <Text style={styles.addToggleText}>{addOpen ? '− Cerrar formulario' : '+ Agregar estudio'}</Text>
-        </Pressable>
 
         {addOpen && (
           <View style={styles.form}>
@@ -304,13 +302,20 @@ export default function EstudiosScreen() {
           ))
         )}
       </ScrollView>
+        <FloatingActionButton
+          label="Estudio"
+          onPress={() => setAddOpen((v) => !v)}
+          bottomOffset={16}
+        />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: Platform.OS === 'web' ? 40 : 32 },
+  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: Platform.OS === 'web' ? 120 : 140 },
   screenTitle: { fontFamily: fonts.titleExtra, fontSize: 26, color: colors.text },
   sub: { fontFamily: fonts.body, fontSize: 14, color: colors.textMuted, marginBottom: 16 },
   label: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.text, marginBottom: 6, marginTop: 8 },
@@ -335,16 +340,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 4,
   },
-  addToggle: {
-    marginTop: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: colors.card,
-    borderWidth: 1.5,
-    borderColor: colors.pinkStrong,
-    alignItems: 'center',
-  },
-  addToggleText: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.pinkDeep },
   form: {
     marginTop: 12,
     padding: 14,

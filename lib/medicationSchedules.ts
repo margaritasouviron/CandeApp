@@ -73,6 +73,8 @@ export async function fetchDoseReminders(patientId: string, hoursAhead = 12): Pr
   });
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 export function formatDoseTime(iso: string) {
   return new Date(iso).toLocaleString('es-ES', {
     day: '2-digit',
@@ -81,6 +83,48 @@ export function formatDoseTime(iso: string) {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+export function formatDoseClock(iso: string) {
+  return new Date(iso).toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/** Próxima dosis a administrar: retrasada, vencida o en menos de 1 hora. */
+export function getUrgentMedicationDose(doses: UpcomingDose[], nowMs = Date.now()): UpcomingDose | null {
+  let best: UpcomingDose | null = null;
+  let bestTime = Infinity;
+
+  for (const dose of doses) {
+    const t = new Date(dose.programadoPara).getTime();
+    const urgent =
+      dose.status === 'retrasada' || t <= nowMs || (t > nowMs && t - nowMs <= ONE_HOUR_MS);
+    if (!urgent) continue;
+    if (t < bestTime) {
+      bestTime = t;
+      best = dose;
+    }
+  }
+
+  return best;
+}
+
+export function medicationUrgencyBannerText(dose: UpcomingDose, nowMs = Date.now()): string {
+  const t = new Date(dose.programadoPara).getTime();
+  const clock = formatDoseClock(dose.programadoPara);
+
+  if (dose.status === 'retrasada' || t <= nowMs) {
+    return `Hay que administrar ${dose.nombre} (${dose.dosis}). ${dose.status === 'retrasada' ? 'Dosis retrasada.' : 'Ya corresponde dar la medicación.'}`;
+  }
+
+  const mins = Math.max(1, Math.round((t - nowMs) / 60000));
+  if (mins >= 60) {
+    return `Hay que administrar ${dose.nombre} (${dose.dosis}) antes de las ${clock}.`;
+  }
+  return `Falta menos de 1 hora para dar ${dose.nombre} (${dose.dosis}): en ${mins} min (a las ${clock}).`;
 }
 
 export function doseStatusLabel(status: UpcomingDose['status']) {

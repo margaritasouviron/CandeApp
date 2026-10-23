@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { BackButton } from '../../components/BackButton';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { useAuth } from '../../lib/auth';
 import {
+  deleteCareLogWithMedicationFollowUp,
   fetchCareLogDetail,
   parseDateTimeLocal,
   updateCareLogDetail,
@@ -49,6 +51,8 @@ export default function CareLogDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [date, setDate] = useState('');
@@ -86,6 +90,34 @@ export default function CareLogDetailScreen() {
     detail &&
     session &&
     (role === 'organizador' || detail.registrado_por === session.user.id);
+
+  const deleteConfirmMessage =
+    detail?.tipo === 'medicacion'
+      ? 'Se borrará este registro y las medicaciones registradas después (misma medicación), más las dosis programadas posteriores. No se puede deshacer.'
+      : 'Se borrará este registro. No se puede deshacer.';
+
+  const handleDeleteConfirm = async () => {
+    if (!detail) return;
+    setDeleting(true);
+    setErrorMsg(null);
+    try {
+      const count = await deleteCareLogWithMedicationFollowUp(detail.id);
+      setDeleteConfirmOpen(false);
+      router.replace({
+        pathname: '/(tabs)/calendar',
+        params: {
+          saved: '1',
+          message:
+            count > 1 ? `Se borraron ${count} registros de medicación` : 'Registro borrado',
+        },
+      });
+    } catch {
+      setDeleteConfirmOpen(false);
+      setErrorMsg('No se pudo borrar. ¿Aplicaste la migración 016 (borrado) en Supabase?');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!detail) return;
@@ -135,7 +167,20 @@ export default function CareLogDetailScreen() {
   return (
     <Screen>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <BackButton />
+        <View style={styles.topBar}>
+          <BackButton />
+          {canEdit && detail && !editing ? (
+            <Pressable onPress={() => setDeleteConfirmOpen(true)} hitSlop={8} disabled={deleting}>
+              {deleting ? (
+                <ActivityIndicator color={colors.error} size="small" />
+              ) : (
+                <Text style={styles.deleteLink}>Borrar registro</Text>
+              )}
+            </Pressable>
+          ) : (
+            <View style={styles.topBarSpacer} />
+          )}
+        </View>
 
         {loading ? (
           <ActivityIndicator color={colors.pinkDeep} style={{ marginTop: 24 }} />
@@ -230,6 +275,20 @@ export default function CareLogDetailScreen() {
           </>
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        visible={deleteConfirmOpen}
+        title="¿Estás segura?"
+        message={deleteConfirmMessage}
+        confirmLabel="Sí, borrar"
+        cancelLabel="Cancelar"
+        destructive
+        loading={deleting}
+        onConfirm={() => void handleDeleteConfirm()}
+        onCancel={() => {
+          if (!deleting) setDeleteConfirmOpen(false);
+        }}
+      />
     </Screen>
   );
 }
@@ -237,6 +296,21 @@ export default function CareLogDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: Platform.OS === 'web' ? 40 : 32 },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+    gap: 12,
+  },
+  topBarSpacer: { width: 1 },
+  deleteLink: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 12,
+    color: colors.error,
+    paddingTop: 10,
+    textDecorationLine: 'underline',
+  },
   typePill: {
     alignSelf: 'flex-start',
     paddingHorizontal: 12,

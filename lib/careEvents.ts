@@ -404,3 +404,12 @@ export async function deleteCareLog(id: string) {
   const { error } = await supabase.from('care_logs').delete().eq('id', id);
   if (error) throw error;
 }
+
+/** Borra el registro; medicación incluye administraciones posteriores y dosis programadas (RPC 016). */
+export async function deleteCareLogWithMedicationFollowUp(id: string): Promise<number> {
+  const { data, error } = await supabase.rpc('delete_care_log_with_medication_follow_up', {
+    p_log_id: id,
+  });
+  if (error) throw error;
+  return Number(data ?? 1);
+}

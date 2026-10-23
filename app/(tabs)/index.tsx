@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,14 @@ import { EventCard } from '../../components/EventCard';
 import { FloatingActionButton } from '../../components/FloatingActionButton';
 import { fetchRecentLogs } from '../../lib/careEvents';
 import { EVENT_LABELS } from '../../lib/eventTypes';
-import { fetchDoseReminders, formatDoseTime, registroParamsFromDose, type UpcomingDose } from '../../lib/medicationSchedules';
+import {
+  fetchDoseReminders,
+  formatDoseTime,
+  getUrgentMedicationDose,
+  medicationUrgencyBannerText,
+  registroParamsFromDose,
+  type UpcomingDose,
+} from '../../lib/medicationSchedules';
 import { getPatient } from '../../lib/patientContext';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
@@ -60,6 +67,7 @@ export default function HomeScreen() {
   const [reminders, setReminders] = useState<UpcomingDose[]>([]);
   const [recent, setRecent] = useState<Awaited<ReturnType<typeof fetchRecentLogs>>>([]);
   const [loading, setLoading] = useState(true);
+  const [urgencyTick, setUrgencyTick] = useState(0);
 
   const loadData = useCallback(async () => {
     if (!session) return;
@@ -88,6 +96,17 @@ export default function HomeScreen() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setUrgencyTick((n) => n + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const urgentDose = useMemo(
+    () => getUrgentMedicationDose(reminders),
+    // urgencyTick: recalcular al cruzar el umbral de 1 h sin recargar datos
+    [reminders, urgencyTick]
+  );
+
   return (
     <Screen>
       <View style={styles.flex}>
@@ -109,6 +128,19 @@ export default function HomeScreen() {
             <NavChip label="Stock" variant="mint" onPress={() => router.push('/(tabs)/stock')} />
           </View>
           <NavChip label="Estudios" variant="rose" layout="solo" onPress={() => router.push('/estudios')} />
+
+          {urgentDose ? (
+            <Pressable
+              style={styles.medAlert}
+              onPress={() =>
+                router.push({ pathname: '/registro', params: registroParamsFromDose(urgentDose) })
+              }
+            >
+              <Text style={styles.medAlertTitle}>Medicación</Text>
+              <Text style={styles.medAlertText}>{medicationUrgencyBannerText(urgentDose)}</Text>
+              <Text style={styles.medAlertAction}>Registrar administración →</Text>
+            </Pressable>
+          ) : null}
 
           <Text style={styles.sectionTitle}>Próximos eventos</Text>
           {reminders.length === 0 ? (
@@ -160,6 +192,32 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logoutText: { fontFamily: fonts.bodySemi, color: colors.pinkDeep, fontSize: 14, paddingTop: 16 },
   navRow: { flexDirection: 'row', marginTop: 4, marginHorizontal: -4 },
+  medAlert: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: colors.error,
+    backgroundColor: '#FFF5F5',
+  },
+  medAlertTitle: {
+    fontFamily: fonts.title,
+    fontSize: 15,
+    color: colors.error,
+    marginBottom: 6,
+  },
+  medAlertText: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 14,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  medAlertAction: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 13,
+    color: colors.pinkDeep,
+    marginTop: 10,
+  },
   sectionTitle: {
     fontFamily: fonts.title,
     fontSize: 17,

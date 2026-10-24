@@ -1,5 +1,7 @@
 -- Borrar registros (autor o administradora)
 
+DROP POLICY IF EXISTS care_logs_delete ON care_logs;
+
 CREATE POLICY care_logs_delete ON care_logs
   FOR DELETE TO authenticated
   USING (is_organizador() OR registrado_por = auth.uid());

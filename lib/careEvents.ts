@@ -405,11 +405,90 @@ export async function deleteCareLog(id: string) {
   if (error) throw error;
 }
 
+function isMissingDeleteRpc(error: { code?: string; message?: string }) {
+  const msg = error.message ?? '';
+  return (
+    error.code === 'PGRST202' ||
+    error.code === '42883' ||
+    /could not find the function/i.test(msg) ||
+    /schema cache/i.test(msg)
+  );
+}
+
+async function deleteCareLogWithMedicationFollowUpClient(id: string): Promise<number> {
+  const { data: logRow, error: logErr } = await supabase
+    .from('care_logs')
+    .select('id, tipo')
+    .eq('id', id)
+    .maybeSingle();
+  if (logErr) throw logErr;
+  if (!logRow) throw new Error('Registro no encontrado');
+
+  if (logRow.tipo !== 'medicacion') {
+    await deleteCareLog(id);
+    return 1;
+  }
+
+  const { data: anchor, error: anchorErr } = await supabase
+    .from('medication_administrations')
+    .select('prescription_id, administrado_en')
+    .eq('care_log_id', id)
+    .maybeSingle();
+  if (anchorErr) throw anchorErr;
+
+  if (!anchor?.prescription_id) {
+    await deleteCareLog(id);
+    return 1;
+  }
+
+  const { data: admins, error: adminsErr } = await supabase
+    .from('medication_administrations')
+    .select('care_log_id')
+    .eq('prescription_id', anchor.prescription_id)
+    .gte('administrado_en', anchor.administrado_en);
+  if (adminsErr) throw adminsErr;
+
+  const logIds = (admins ?? []).map((a) => a.care_log_id as string);
+  if (logIds.length === 0) {
+    await deleteCareLog(id);
+    return 1;
+  }
+
+  const { error: schedErr } = await supabase
+    .from('medication_schedules')
+    .delete()
+    .eq('prescription_id', anchor.prescription_id)
+    .in('status', ['pendiente', 'retrasada'])
+    .gte('programado_para', anchor.administrado_en);
+  if (schedErr) throw schedErr;
+
+  for (const logId of logIds) {
+    const { error: linkedSchedErr } = await supabase
+      .from('medication_schedules')
+      .delete()
+      .eq('administration_id', logId);
+    if (linkedSchedErr) throw linkedSchedErr;
+  }
+
+  const { error: delErr } = await supabase.from('care_logs').delete().in('id', logIds);
+  if (delErr) throw delErr;
+
+  return logIds.length;
+}
+
 /** Borra el registro; medicación incluye administraciones posteriores y dosis programadas (RPC 016). */
 export async function deleteCareLogWithMedicationFollowUp(id: string): Promise<number> {
   const { data, error } = await supabase.rpc('delete_care_log_with_medication_follow_up', {
     p_log_id: id,
   });
-  if (error) throw error;
-  return Number(data ?? 1);
+
+  if (!error) {
+    return Number(data ?? 1);
+  }
+
+  if (isMissingDeleteRpc(error)) {
+    return deleteCareLogWithMedicationFollowUpClient(id);
+  }
+
+  throw error;
 }

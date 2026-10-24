@@ -42,8 +42,20 @@ function hmFromIso(iso: string) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function supabaseErrorMessage(e: unknown, fallback: string) {
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
+    const msg = (e as { message: string }).message;
+    if (/row-level security/i.test(msg)) {
+      return `${msg} Ejecutá supabase/migrations/017_care_logs_delete_idempotent.sql en Supabase.`;
+    }
+    return msg;
+  }
+  return fallback;
+}
+
 export default function CareLogDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: idParam } = useLocalSearchParams<{ id: string | string[] }>();
+  const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const { session, role, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -111,9 +123,14 @@ export default function CareLogDetailScreen() {
             count > 1 ? `Se borraron ${count} registros de medicación` : 'Registro borrado',
         },
       });
-    } catch {
+    } catch (e) {
       setDeleteConfirmOpen(false);
-      setErrorMsg('No se pudo borrar. ¿Aplicaste la migración 016 (borrado) en Supabase?');
+      setErrorMsg(
+        supabaseErrorMessage(
+          e,
+          'No se pudo borrar. Ejecutá supabase/migrations/017_care_logs_delete_idempotent.sql en el SQL Editor de Supabase.'
+        )
+      );
     } finally {
       setDeleting(false);
     }

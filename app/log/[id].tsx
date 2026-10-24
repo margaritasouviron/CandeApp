@@ -12,7 +12,7 @@ import {
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { BackButton } from '../../components/BackButton';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { useAuth } from '../../lib/auth';
+import { fetchRole, useAuth, type AppRole } from '../../lib/auth';
 import {
   deleteCareLogWithMedicationFollowUp,
   fetchCareLogDetail,
@@ -58,6 +58,7 @@ export default function CareLogDetailScreen() {
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const { session, role, loading: authLoading } = useAuth();
   const router = useRouter();
+  const [resolvedRole, setResolvedRole] = useState<AppRole | null>(null);
 
   const [detail, setDetail] = useState<CareLogDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,10 +99,27 @@ export default function CareLogDetailScreen() {
     if (session) load();
   }, [session, load]);
 
-  const canEdit =
-    detail &&
-    session &&
-    (role === 'organizador' || detail.registrado_por === session.user.id);
+  useEffect(() => {
+    if (!session?.user.id) {
+      setResolvedRole(null);
+      return;
+    }
+    if (role) {
+      setResolvedRole(role);
+      return;
+    }
+    void fetchRole(session.user.id).then(setResolvedRole);
+  }, [session?.user.id, role]);
+
+  const effectiveRole = role ?? resolvedRole;
+
+  const canManage =
+    !!detail &&
+    !!session &&
+    (effectiveRole === 'organizador' || detail.registrado_por === session.user.id);
+
+  const canEdit = canManage;
+  const canDelete = canManage;
 
   const deleteConfirmMessage =
     detail?.tipo === 'medicacion'
@@ -184,20 +202,7 @@ export default function CareLogDetailScreen() {
   return (
     <Screen>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.topBar}>
-          <BackButton />
-          {canEdit && detail && !editing ? (
-            <Pressable onPress={() => setDeleteConfirmOpen(true)} hitSlop={8} disabled={deleting}>
-              {deleting ? (
-                <ActivityIndicator color={colors.error} size="small" />
-              ) : (
-                <Text style={styles.deleteLink}>Borrar registro</Text>
-              )}
-            </Pressable>
-          ) : (
-            <View style={styles.topBarSpacer} />
-          )}
-        </View>
+        <BackButton />
 
         {loading ? (
           <ActivityIndicator color={colors.pinkDeep} style={{ marginTop: 24 }} />
@@ -205,10 +210,28 @@ export default function CareLogDetailScreen() {
           <Text style={styles.error}>No existe este registro</Text>
         ) : (
           <>
-            <View style={[styles.typePill, { backgroundColor: accent }]}>
-              <Text style={styles.typePillText}>{EVENT_LABELS[detail.tipo]}</Text>
+            <View style={styles.titleRow}>
+              <View style={styles.titleCol}>
+                <View style={[styles.typePill, { backgroundColor: accent }]}>
+                  <Text style={styles.typePillText}>{EVENT_LABELS[detail.tipo]}</Text>
+                </View>
+                <Text style={styles.title}>{detail.title}</Text>
+              </View>
+              {canDelete && !editing ? (
+                <Pressable
+                  style={styles.deleteBtn}
+                  onPress={() => setDeleteConfirmOpen(true)}
+                  hitSlop={8}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <ActivityIndicator color={colors.error} size="small" />
+                  ) : (
+                    <Text style={styles.deleteLink}>Borrar registro</Text>
+                  )}
+                </Pressable>
+              ) : null}
             </View>
-            <Text style={styles.title}>{detail.title}</Text>
 
             <Text style={styles.metaLabel}>Registrado por</Text>
             <Text style={styles.metaValue}>{detail.authorName}</Text>
@@ -313,19 +336,21 @@ export default function CareLogDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: Platform.OS === 'web' ? 40 : 32 },
-  topBar: {
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 4,
     gap: 12,
+    marginBottom: 16,
+    width: '100%',
   },
-  topBarSpacer: { width: 1 },
+  titleCol: { flex: 1, minWidth: 0 },
+  deleteBtn: { flexShrink: 0, paddingTop: 2, maxWidth: '42%' },
   deleteLink: {
     fontFamily: fonts.bodySemi,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.error,
-    paddingTop: 10,
+    textAlign: 'right',
     textDecorationLine: 'underline',
   },
   typePill: {
@@ -336,7 +361,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   typePillText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.white },
-  title: { fontFamily: fonts.titleExtra, fontSize: 22, color: colors.text, marginBottom: 16 },
+  title: { fontFamily: fonts.titleExtra, fontSize: 22, color: colors.text },
   metaLabel: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.textMuted, marginTop: 12, marginBottom: 4 },
   metaValue: { fontFamily: fonts.body, fontSize: 16, color: colors.text },
   bodyText: { fontFamily: fonts.body, fontSize: 16, color: colors.text, lineHeight: 24 },

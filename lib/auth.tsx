@@ -15,7 +15,7 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function fetchRole(userId: string): Promise<AppRole | null> {
+export async function fetchRole(userId: string): Promise<AppRole | null> {
   try {
     const { data, error } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
     if (error) {

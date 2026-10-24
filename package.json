@@ -32,7 +32,7 @@
   "scripts": {
     "start": "expo start --go",
     "web": "expo start --web --go",
-    "build": "node scripts/check-env.js && python3 scripts/generate-circular-icons.py && expo export -p web && node scripts/patch-web-export.js",
+    "build": "node scripts/check-env.js && expo export -p web && node scripts/patch-web-export.js",
     "icons": "python3 scripts/generate-circular-icons.py",
     "android": "expo run:android",
     "ios": "expo run:ios"

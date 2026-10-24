@@ -20,7 +20,7 @@ import {
   updateCareLogDetail,
   type CareLogDetail,
 } from '../../lib/careEvents';
-import { EVENT_COLORS, EVENT_LABELS } from '../../lib/eventTypes';
+import { EVENT_COLORS, EVENT_LABELS, isDurationEventType } from '../../lib/eventTypes';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
 import { fonts } from '../../lib/typography';
@@ -163,8 +163,8 @@ export default function CareLogDetailScreen() {
         date,
         time,
         text,
-        sleepStart: detail.tipo === 'sueno' ? sleepStart : undefined,
-        sleepEnd: detail.tipo === 'sueno' ? sleepEnd : undefined,
+        sleepStart: isDurationEventType(detail.tipo) ? sleepStart : undefined,
+        sleepEnd: isDurationEventType(detail.tipo) ? sleepEnd : undefined,
       });
       setEditing(false);
       await load();
@@ -259,9 +259,27 @@ export default function CareLogDetailScreen() {
               </>
             )}
 
-            {detail.tipo === 'sueno' && (
+            {detail.tipo === 'comida' && (
               <>
-                <Text style={styles.metaLabel}>Sueño</Text>
+                <Text style={styles.metaLabel}>Mililitros</Text>
+                {editing ? (
+                  <TextInput style={styles.input} value={text} onChangeText={setText} keyboardType="decimal-pad" />
+                ) : (
+                  <Text style={styles.bodyText}>{detail.detail}</Text>
+                )}
+              </>
+            )}
+
+            {detail.tipo === 'terapia' && detail.activitySubtipo ? (
+              <>
+                <Text style={styles.metaLabel}>Tipo de terapia</Text>
+                <Text style={styles.metaValue}>{detail.activitySubtipo}</Text>
+              </>
+            ) : null}
+
+            {isDurationEventType(detail.tipo) && (
+              <>
+                <Text style={styles.metaLabel}>Horario</Text>
                 {editing ? (
                   <>
                     <Text style={styles.hint}>Desde</Text>
@@ -275,7 +293,7 @@ export default function CareLogDetailScreen() {
               </>
             )}
 
-            {(detail.tipo === 'comida' || detail.tipo === 'observacion' || detail.tipo === 'nota') && (
+            {(detail.tipo === 'observacion' || detail.tipo === 'nota') && (
               <>
                 <Text style={styles.metaLabel}>Detalle</Text>
                 {editing ? (

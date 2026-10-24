@@ -1,5 +1,10 @@
 import { supabase } from './supabase';
-import type { EventType } from './eventTypes';
+import {
+  EVENT_LABELS,
+  formatTerapiaLabel,
+  isDurationEventType,
+  type EventType,
+} from './eventTypes';
 
 export type DayEvent = {
   hora: string;
@@ -31,6 +36,14 @@ export type SleepBlock = {
   careLogId: string;
 };
 
+export type DurationBlock = {
+  inicio: string;
+  fin: string;
+  careLogId: string;
+  tipo: EventType;
+  subtipo?: string | null;
+};
+
 export type CareLogDetail = {
   id: string;
   patient_id: string;
@@ -45,6 +58,7 @@ export type CareLogDetail = {
   medDosis?: string;
   sleepInicio?: string;
   sleepFin?: string;
+  activitySubtipo?: string;
 };
 
 function mapLogRow(row: {
@@ -52,9 +66,16 @@ function mapLogRow(row: {
   tipo: string;
   registrado_en: string;
   observations?: { contenido: string } | { contenido: string }[] | null;
-  meal_entries?: { descripcion: string; tipo_comida?: string } | { descripcion: string; tipo_comida?: string }[] | null;
+  meal_entries?:
+    | { descripcion: string; tipo_comida?: string; mililitros?: number | null }
+    | { descripcion: string; tipo_comida?: string; mililitros?: number | null }[]
+    | null;
   medication_administrations?: { nombre_medicamento: string; dosis: string } | { nombre_medicamento: string; dosis: string }[] | null;
   sleep_entries?: { inicio: string; fin: string } | { inicio: string; fin: string }[] | null;
+  activity_blocks?:
+    | { inicio: string; fin: string; subtipo: string | null }
+    | { inicio: string; fin: string; subtipo: string | null }[]
+    | null;
 }): JournalLogItem {
   const obs = Array.isArray(row.observations) ? row.observations[0] : row.observations;
   const meal = Array.isArray(row.meal_entries) ? row.meal_entries[0] : row.meal_entries;
@@ -62,17 +83,27 @@ function mapLogRow(row: {
     ? row.medication_administrations[0]
     : row.medication_administrations;
   const sleep = Array.isArray(row.sleep_entries) ? row.sleep_entries[0] : row.sleep_entries;
+  const activity = Array.isArray(row.activity_blocks) ? row.activity_blocks[0] : row.activity_blocks;
 
-  let title = row.tipo;
+  let title = EVENT_LABELS[row.tipo as EventType] ?? row.tipo;
   let detail = obs?.contenido ?? meal?.descripcion ?? '';
   if (med) {
     title = med.nombre_medicamento;
     detail = med.dosis;
   }
-  if (row.tipo === 'sueno' && sleep) {
-    const a = new Date(sleep.inicio);
-    const b = new Date(sleep.fin);
-    title = 'Sueño';
+  if (row.tipo === 'comida' && meal) {
+    if (meal.tipo_comida === 'sopa') title = 'Sopa';
+    else if (meal.tipo_comida === 'jugo') title = 'Jugo';
+    if (meal.mililitros != null) detail = `${meal.mililitros} ml`;
+  }
+  if (row.tipo === 'terapia' && activity?.subtipo) {
+    title = formatTerapiaLabel(activity.subtipo);
+  }
+  const durationSource = sleep ?? activity;
+  if (isDurationEventType(row.tipo) && durationSource) {
+    const a = new Date(durationSource.inicio);
+    const b = new Date(durationSource.fin);
+    if (row.tipo !== 'terapia') title = EVENT_LABELS[row.tipo as EventType] ?? title;
     detail = `${formatHm(a)} – ${formatHm(b)}`;
   }
 
@@ -115,9 +146,10 @@ export async function fetchDayJournal(patientId: string, dateStr: string): Promi
     .select(`
       id, tipo, registrado_en,
       observations ( contenido ),
-      meal_entries ( descripcion, tipo_comida ),
+      meal_entries ( descripcion, tipo_comida, mililitros ),
       medication_administrations ( nombre_medicamento, dosis ),
-      sleep_entries ( inicio, fin )
+      sleep_entries ( inicio, fin ),
+      activity_blocks ( inicio, fin, subtipo )
     `)
     .eq('patient_id', patientId)
     .gte('registrado_en', start.toISOString())
@@ -128,38 +160,77 @@ export async function fetchDayJournal(patientId: string, dateStr: string): Promi
   return (data ?? []).map(mapLogRow);
 }
 
-export async function fetchSleepBlocksForDay(patientId: string, dateStr: string): Promise<SleepBlock[]> {
+function overlapsDay(start: Date, end: Date, dayStart: Date, dayEnd: Date) {
+  const a = start.getTime();
+  const b = end.getTime();
+  return b >= dayStart.getTime() && a <= dayEnd.getTime();
+}
+
+export async function fetchDurationBlocksForDay(
+  patientId: string,
+  dateStr: string
+): Promise<DurationBlock[]> {
   const { start, end } = dayBounds(dateStr);
-  const { data, error } = await supabase
+  const blocks: DurationBlock[] = [];
+
+  const { data: sleepRows, error: sleepErr } = await supabase
     .from('sleep_entries')
     .select('inicio, fin, care_log_id, care_logs!inner(patient_id)')
     .eq('care_logs.patient_id', patientId);
 
-  if (error) {
-    if (error.message.includes('sleep_entries')) return [];
-    throw error;
+  if (!sleepErr) {
+    for (const row of sleepRows ?? []) {
+      if (overlapsDay(new Date(row.inicio), new Date(row.fin), start, end)) {
+        blocks.push({
+          inicio: row.inicio,
+          fin: row.fin,
+          careLogId: row.care_log_id as string,
+          tipo: 'sueno',
+        });
+      }
+    }
   }
 
-  return (data ?? [])
-    .filter((row) => {
-      const a = new Date(row.inicio).getTime();
-      const b = new Date(row.fin).getTime();
-      return b >= start.getTime() && a <= end.getTime();
-    })
-    .map((row) => ({
-      inicio: row.inicio,
-      fin: row.fin,
-      careLogId: row.care_log_id as string,
-    }));
+  const { data: actRows, error: actErr } = await supabase
+    .from('activity_blocks')
+    .select('inicio, fin, subtipo, care_log_id, care_logs!inner(patient_id, tipo)')
+    .eq('care_logs.patient_id', patientId);
+
+  if (!actErr) {
+    for (const row of actRows ?? []) {
+      const cl = Array.isArray(row.care_logs) ? row.care_logs[0] : row.care_logs;
+      if (!cl?.tipo) continue;
+      if (overlapsDay(new Date(row.inicio), new Date(row.fin), start, end)) {
+        blocks.push({
+          inicio: row.inicio,
+          fin: row.fin,
+          careLogId: row.care_log_id as string,
+          tipo: cl.tipo as EventType,
+          subtipo: row.subtipo,
+        });
+      }
+    }
+  }
+
+  return blocks;
+}
+
+/** @deprecated use fetchDurationBlocksForDay */
+export async function fetchSleepBlocksForDay(patientId: string, dateStr: string): Promise<SleepBlock[]> {
+  const all = await fetchDurationBlocksForDay(patientId, dateStr);
+  return all
+    .filter((b) => b.tipo === 'sueno')
+    .map(({ inicio, fin, careLogId }) => ({ inicio, fin, careLogId }));
 }
 
 const detailSelect = `
   id, patient_id, tipo, registrado_en, registrado_por,
   profiles:registrado_por ( nombre_completo ),
   observations ( contenido ),
-  meal_entries ( descripcion ),
+  meal_entries ( descripcion, tipo_comida, mililitros ),
   medication_administrations ( nombre_medicamento, dosis, administrado_en ),
-  sleep_entries ( inicio, fin )
+  sleep_entries ( inicio, fin ),
+  activity_blocks ( inicio, fin, subtipo )
 `;
 
 export async function fetchCareLogDetail(id: string): Promise<CareLogDetail | null> {
@@ -176,9 +247,15 @@ export async function fetchCareLogDetail(id: string): Promise<CareLogDetail | nu
     ? data.medication_administrations[0]
     : data.medication_administrations;
   const sleep = Array.isArray(data.sleep_entries) ? data.sleep_entries[0] : data.sleep_entries;
+  const activity = Array.isArray(data.activity_blocks) ? data.activity_blocks[0] : data.activity_blocks;
 
   let editableText = obs?.contenido ?? meal?.descripcion ?? '';
   if (med) editableText = med.dosis;
+  if (data.tipo === 'comida' && meal?.mililitros != null) {
+    editableText = String(meal.mililitros);
+  }
+
+  const duration = sleep ?? activity;
 
   return {
     id: data.id,
@@ -192,8 +269,9 @@ export async function fetchCareLogDetail(id: string): Promise<CareLogDetail | nu
     editableText,
     medNombre: med?.nombre_medicamento,
     medDosis: med?.dosis,
-    sleepInicio: sleep?.inicio,
-    sleepFin: sleep?.fin,
+    sleepInicio: duration?.inicio,
+    sleepFin: duration?.fin,
+    activitySubtipo: activity?.subtipo ?? undefined,
   };
 }
 
@@ -229,9 +307,13 @@ export async function updateCareLogDetail(
   if (logError) throw logError;
 
   if (detail.tipo === 'comida') {
+    const ml = parseFloat(input.text.replace(',', '.'));
     const { error } = await supabase
       .from('meal_entries')
-      .update({ descripcion: input.text.trim() })
+      .update({
+        mililitros: Number.isFinite(ml) ? ml : null,
+        descripcion: Number.isFinite(ml) ? `${ml} ml` : input.text.trim(),
+      })
       .eq('care_log_id', detail.id);
     if (error) throw error;
   } else if (detail.tipo === 'medicacion') {
@@ -241,18 +323,26 @@ export async function updateCareLogDetail(
       .update({ dosis: input.text.trim(), administrado_en: adminEn })
       .eq('care_log_id', detail.id);
     if (error) throw error;
-  } else if (detail.tipo === 'sueno' && input.sleepStart && input.sleepEnd) {
+  } else if (isDurationEventType(detail.tipo) && input.sleepStart && input.sleepEnd) {
     const { date } = parseDateTimeLocal(detail.registrado_en);
     const inicio = combineDateTime(date, input.sleepStart);
     let fin = combineDateTime(date, input.sleepEnd);
     if (fin.getTime() <= inicio.getTime()) {
       fin = new Date(fin.getTime() + 24 * 60 * 60 * 1000);
     }
-    const { error: sleepErr } = await supabase
-      .from('sleep_entries')
-      .update({ inicio: inicio.toISOString(), fin: fin.toISOString() })
-      .eq('care_log_id', detail.id);
-    if (sleepErr) throw sleepErr;
+    if (detail.tipo === 'sueno') {
+      const { error: sleepErr } = await supabase
+        .from('sleep_entries')
+        .update({ inicio: inicio.toISOString(), fin: fin.toISOString() })
+        .eq('care_log_id', detail.id);
+      if (sleepErr) throw sleepErr;
+    } else {
+      const { error: actErr } = await supabase
+        .from('activity_blocks')
+        .update({ inicio: inicio.toISOString(), fin: fin.toISOString() })
+        .eq('care_log_id', detail.id);
+      if (actErr) throw actErr;
+    }
     await supabase.from('care_logs').update({ registrado_en: inicio.toISOString() }).eq('id', detail.id);
   } else if (detail.tipo === 'observacion' || detail.tipo === 'nota') {
     const { error } = await supabase
@@ -281,9 +371,10 @@ export async function fetchWeekJournalTitles(patientId: string, anchorDateStr: s
     .select(`
       id, tipo, registrado_en,
       observations ( contenido ),
-      meal_entries ( descripcion ),
+      meal_entries ( descripcion, tipo_comida, mililitros ),
       medication_administrations ( nombre_medicamento, dosis ),
-      sleep_entries ( inicio, fin )
+      sleep_entries ( inicio, fin ),
+      activity_blocks ( inicio, fin, subtipo )
     `)
     .eq('patient_id', patientId)
     .gte('registrado_en', monday.toISOString())
@@ -361,9 +452,10 @@ export async function fetchRecentLogs(limit = 30, tipoFilter?: EventType[], pati
       id, tipo, registrado_en, registrado_por,
       profiles:registrado_por ( nombre_completo ),
       observations ( contenido ),
-      meal_entries ( descripcion ),
+      meal_entries ( descripcion, tipo_comida, mililitros ),
       medication_administrations ( nombre_medicamento, dosis ),
-      sleep_entries ( inicio, fin )
+      sleep_entries ( inicio, fin ),
+      activity_blocks ( inicio, fin, subtipo )
     `)
     .order('registrado_en', { ascending: false })
     .limit(limit);

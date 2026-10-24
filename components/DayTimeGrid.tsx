@@ -1,7 +1,14 @@
 import { useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
-import type { JournalLogItem, SleepBlock } from '../lib/careEvents';
-import { EVENT_COLORS, EVENT_LABELS, type EventType } from '../lib/eventTypes';
+import type { DurationBlock, JournalLogItem } from '../lib/careEvents';
+import {
+  EVENT_COLORS,
+  EVENT_LABELS,
+  EVENT_SHADE_COLORS,
+  isDurationEventType,
+  isInstantEventType,
+  type EventType,
+} from '../lib/eventTypes';
 import type { UpcomingDose } from '../lib/medicationSchedules';
 import { colors } from '../lib/theme';
 import { fonts } from '../lib/typography';
@@ -10,11 +17,17 @@ const HOUR_HEIGHT = 48;
 const TIME_GUTTER = 48;
 const GRID_HEIGHT = HOUR_HEIGHT * 24;
 const COL_GAP = 2;
+/** Ventana mínima para columnas de eventos no puntuales. */
+const INSTANT_EVENT_MS = 5 * 60 * 1000;
+const INSTANT_LINE_THICKNESS = 3;
+const INSTANT_BOX_HEIGHT = 36;
+const INSTANT_BOX_WIDTH_PCT = 42;
+const INSTANT_BOX_GAP = 4;
 
 type Props = {
   dateStr: string;
   logs: JournalLogItem[];
-  sleepBlocks: SleepBlock[];
+  durationBlocks: DurationBlock[];
   scheduled: UpcomingDose[];
   onLogPress?: (careLogId: string) => void;
 };
@@ -35,6 +48,16 @@ type PlacedEntry = TimedEntry & {
   height: number;
   col: number;
   colCount: number;
+};
+
+type InstantMarker = {
+  key: string;
+  kind: 'log' | 'scheduled';
+  top: number;
+  boxTop: number;
+  startIso: string;
+  log?: JournalLogItem;
+  dose?: UpcomingDose;
 };
 
 function formatHourLabel(hour: number) {
@@ -70,10 +93,12 @@ function toTimedLayout(dateStr: string, startIso: string, endIso: string) {
   return { top, height, start: a, end: b };
 }
 
-function formatRange(startIso: string, endIso: string) {
-  const fmt = (iso: string) =>
-    new Date(iso).toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true });
-  return `${fmt(startIso)} – ${fmt(endIso)}`;
+function formatEventClock(iso: string) {
+  return new Date(iso).toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 /** Reparte eventos solapados en columnas (estilo agenda). */
@@ -105,16 +130,64 @@ function layoutTimedEntries(dateStr: string, entries: TimedEntry[]): PlacedEntry
   });
 }
 
-function buildTimedEntries(
+function msToGridTop(dateStr: string, iso: string) {
+  const dayStart = dayStartMs(dateStr);
+  const t = new Date(iso).getTime();
+  return ((t - dayStart) / 3600000) * HOUR_HEIGHT;
+}
+
+function layoutInstantMarkers(markers: Omit<InstantMarker, 'boxTop'>[]): InstantMarker[] {
+  const sorted = [...markers].sort((a, b) => a.top - b.top || a.key.localeCompare(b.key));
+  let stackBottom = -Infinity;
+  return sorted.map((m) => {
+    let boxTop = m.top - INSTANT_BOX_HEIGHT / 2;
+    if (boxTop < stackBottom + INSTANT_BOX_GAP) {
+      boxTop = stackBottom + INSTANT_BOX_GAP;
+    }
+    stackBottom = boxTop + INSTANT_BOX_HEIGHT;
+    return { ...m, boxTop };
+  });
+}
+
+function buildInstantMarkers(
   dateStr: string,
   logs: JournalLogItem[],
   scheduled: UpcomingDose[]
-): TimedEntry[] {
+): InstantMarker[] {
+  const raw: Omit<InstantMarker, 'boxTop'>[] = [];
+
+  for (const log of logs) {
+    if (!isInstantEventType(log.tipo)) continue;
+    if (!sameCalendarDay(dateStr, log.registrado_en)) continue;
+    raw.push({
+      key: log.id,
+      kind: 'log',
+      top: msToGridTop(dateStr, log.registrado_en),
+      startIso: log.registrado_en,
+      log,
+    });
+  }
+
+  for (const dose of scheduled) {
+    if (!sameCalendarDay(dateStr, dose.programadoPara)) continue;
+    raw.push({
+      key: `sched-${dose.id}`,
+      kind: 'scheduled',
+      top: msToGridTop(dateStr, dose.programadoPara),
+      startIso: dose.programadoPara,
+      dose,
+    });
+  }
+
+  return layoutInstantMarkers(raw);
+}
+
+function buildTimedEntries(dateStr: string, logs: JournalLogItem[]): TimedEntry[] {
   const items: TimedEntry[] = [];
 
-  for (const log of logs.filter((l) => l.tipo !== 'sueno')) {
+  for (const log of logs.filter((l) => !isDurationEventType(l.tipo) && !isInstantEventType(l.tipo))) {
     const startIso = log.registrado_en;
-    const endIso = new Date(new Date(startIso).getTime() + 60 * 60 * 1000).toISOString();
+    const endIso = new Date(new Date(startIso).getTime() + INSTANT_EVENT_MS).toISOString();
     const range = clampDayRange(dateStr, startIso, endIso);
     if (range.b <= range.a) continue;
     items.push({
@@ -123,22 +196,6 @@ function buildTimedEntries(
       start: range.a,
       end: range.b,
       log,
-      startIso,
-      endIso,
-    });
-  }
-
-  for (const dose of scheduled) {
-    const startIso = dose.programadoPara;
-    const endIso = new Date(new Date(startIso).getTime() + 60 * 60 * 1000).toISOString();
-    const range = clampDayRange(dateStr, startIso, endIso);
-    if (range.b <= range.a) continue;
-    items.push({
-      key: `sched-${dose.id}`,
-      kind: 'scheduled',
-      start: range.a,
-      end: range.b,
-      dose,
       startIso,
       endIso,
     });
@@ -158,13 +215,18 @@ function columnGeometry(col: number, colCount: number) {
   };
 }
 
-export function DayTimeGrid({ dateStr, logs, sleepBlocks, scheduled, onLogPress }: Props) {
+export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPress }: Props) {
   const dayScheduled = scheduled.filter((d) => sameCalendarDay(dateStr, d.programadoPara));
 
   const placed = useMemo(() => {
-    const entries = buildTimedEntries(dateStr, logs, dayScheduled);
+    const entries = buildTimedEntries(dateStr, logs);
     return layoutTimedEntries(dateStr, entries);
   }, [dateStr, logs, dayScheduled]);
+
+  const instantMarkers = useMemo(
+    () => buildInstantMarkers(dateStr, logs, dayScheduled),
+    [dateStr, logs, dayScheduled]
+  );
 
   return (
     <View style={styles.wrap}>
@@ -175,16 +237,118 @@ export function DayTimeGrid({ dateStr, logs, sleepBlocks, scheduled, onLogPress 
       ))}
 
       <View style={[styles.gridArea, { height: GRID_HEIGHT }]}>
-        {sleepBlocks.map((block, idx) => {
+        {durationBlocks.map((block, idx) => {
           const layout = toTimedLayout(dateStr, block.inicio, block.fin);
           if (!layout) return null;
+          const accent = EVENT_COLORS[block.tipo] ?? colors.greenDark;
+          const fill = EVENT_SHADE_COLORS[block.tipo] ?? colors.sleepShade;
+          const label =
+            block.tipo === 'terapia' && block.subtipo
+              ? EVENT_LABELS.terapia
+              : EVENT_LABELS[block.tipo] ?? block.tipo;
           return (
             <Pressable
-              key={`sleep-${idx}`}
-              style={[styles.sleepBlock, { top: layout.top, height: layout.height }]}
-              onPress={() => block.careLogId && onLogPress?.(block.careLogId)}
-              disabled={!onLogPress || !block.careLogId}
-            />
+              key={`dur-${block.careLogId}-${idx}`}
+              style={[
+                styles.durationBlock,
+                {
+                  top: layout.top,
+                  height: layout.height,
+                  backgroundColor: fill,
+                  borderLeftColor: accent,
+                },
+              ]}
+              onPress={() => onLogPress?.(block.careLogId)}
+              disabled={!onLogPress}
+            >
+              <Text style={[styles.durationLabel, { color: accent }]} numberOfLines={2}>
+                {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+
+        {instantMarkers.map((marker) => {
+          const lineTop = marker.top - INSTANT_LINE_THICKNESS / 2;
+          const boxWidth = `${INSTANT_BOX_WIDTH_PCT}%` as `${number}%`;
+          const lineRight = `${INSTANT_BOX_WIDTH_PCT}%` as `${number}%`;
+
+          if (marker.kind === 'scheduled' && marker.dose) {
+            const accent = colors.greenDark;
+            return (
+              <View key={marker.key} pointerEvents="box-none" style={styles.instantLayer}>
+                <View
+                  style={[
+                    styles.instantLine,
+                    { top: lineTop, right: lineRight, backgroundColor: accent },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.instantBox,
+                    {
+                      top: marker.boxTop,
+                      width: boxWidth,
+                      backgroundColor: colors.upcomingFill,
+                      borderLeftColor: accent,
+                    },
+                  ]}
+                >
+                  <View style={styles.eventRow}>
+                    <View style={styles.eventBody}>
+                      <Text style={styles.scheduledTitle} numberOfLines={1}>
+                        {marker.dose.nombre}
+                      </Text>
+                      <Text style={styles.instantScheduledHint} numberOfLines={1}>
+                        Programada
+                      </Text>
+                    </View>
+                    <Text style={styles.scheduledTimeRight} numberOfLines={1}>
+                      {formatEventClock(marker.startIso)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          }
+
+          const log = marker.log!;
+          const accent = EVENT_COLORS[log.tipo as EventType] ?? colors.greenDark;
+          return (
+            <View key={marker.key} pointerEvents="box-none" style={styles.instantLayer}>
+              <View
+                style={[styles.instantLine, { top: lineTop, right: lineRight, backgroundColor: accent }]}
+              />
+              <Pressable
+                style={[
+                  styles.instantBox,
+                  styles.instantBoxSolid,
+                  {
+                    top: marker.boxTop,
+                    width: boxWidth,
+                    backgroundColor: accent,
+                  },
+                ]}
+                onPress={() => onLogPress?.(log.id)}
+                disabled={!onLogPress}
+              >
+                <View style={styles.eventRow}>
+                  <View style={styles.eventBody}>
+                    <Text style={styles.eventTitle} numberOfLines={1}>
+                      {log.title || EVENT_LABELS[log.tipo as EventType]}
+                    </Text>
+                    {log.detail ? (
+                      <Text style={styles.eventDetail} numberOfLines={2}>
+                        {log.detail}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.eventTimeRight} numberOfLines={1}>
+                    {formatEventClock(marker.startIso)}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
           );
         })}
 
@@ -192,35 +356,6 @@ export function DayTimeGrid({ dateStr, logs, sleepBlocks, scheduled, onLogPress 
           const geom = columnGeometry(ev.col, ev.colCount);
           const narrow = ev.colCount > 1;
           const tight = ev.colCount >= 3;
-
-          if (ev.kind === 'scheduled' && ev.dose) {
-            return (
-              <View
-                key={ev.key}
-                style={[
-                  styles.scheduledBlock,
-                  {
-                    top: ev.top,
-                    height: ev.height,
-                    left: geom.left,
-                    width: geom.width,
-                    paddingLeft: geom.paddingLeft,
-                    paddingRight: geom.paddingRight,
-                  },
-                ]}
-              >
-                <Text style={[styles.scheduledTitle, tight && styles.textTight]} numberOfLines={narrow ? 3 : 2}>
-                  {ev.dose.nombre}
-                </Text>
-                {!tight && (
-                  <Text style={styles.scheduledTime} numberOfLines={1}>
-                    {formatRange(ev.startIso, ev.endIso)}
-                  </Text>
-                )}
-              </View>
-            );
-          }
-
           const log = ev.log!;
           const accent = EVENT_COLORS[log.tipo as EventType] ?? colors.greenDark;
           return (
@@ -241,22 +376,27 @@ export function DayTimeGrid({ dateStr, logs, sleepBlocks, scheduled, onLogPress 
               onPress={() => onLogPress?.(log.id)}
               disabled={!onLogPress}
             >
-              <Text
-                style={[styles.eventTitle, narrow && styles.eventTitleNarrow, tight && styles.textTight]}
-                numberOfLines={tight ? 4 : 3}
-              >
-                {log.title || EVENT_LABELS[log.tipo as EventType]}
-              </Text>
-              {log.detail && !tight && (
-                <Text style={[styles.eventDetail, narrow && styles.eventDetailNarrow]} numberOfLines={narrow ? 2 : 3}>
-                  {log.detail}
+              <View style={styles.eventRow}>
+                <View style={styles.eventBody}>
+                  <Text
+                    style={[styles.eventTitle, narrow && styles.eventTitleNarrow, tight && styles.textTight]}
+                    numberOfLines={tight ? 2 : 1}
+                  >
+                    {log.title || EVENT_LABELS[log.tipo as EventType]}
+                  </Text>
+                  {log.detail ? (
+                    <Text
+                      style={[styles.eventDetail, narrow && styles.eventDetailNarrow, tight && styles.textTight]}
+                      numberOfLines={tight ? 1 : 2}
+                    >
+                      {log.detail}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.eventTimeRight, tight && styles.timeRightTight]} numberOfLines={1}>
+                  {formatEventClock(ev.startIso)}
                 </Text>
-              )}
-              {!narrow && (
-                <Text style={styles.eventTime} numberOfLines={1}>
-                  {formatRange(ev.startIso, ev.endIso)}
-                </Text>
-              )}
+              </View>
             </Pressable>
           );
         })}
@@ -296,41 +436,95 @@ const styles = StyleSheet.create({
     marginRight: 4,
     position: 'relative',
   },
-  sleepBlock: {
+  instantLayer: {
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: colors.sleepShade,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.greenDark,
-    zIndex: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 4,
   },
-  scheduledBlock: {
+  instantLine: {
     position: 'absolute',
-    backgroundColor: colors.upcomingFill,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.greenDark,
-    borderRadius: 4,
-    paddingVertical: 3,
-    justifyContent: 'flex-start',
-    zIndex: 1,
-    overflow: 'hidden',
+    left: 0,
+    height: INSTANT_LINE_THICKNESS,
+    borderRadius: 2,
   },
+  instantBox: {
+    position: 'absolute',
+    right: 0,
+    minHeight: INSTANT_BOX_HEIGHT,
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    borderLeftWidth: 3,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+  },
+  instantBoxSolid: {
+    borderLeftWidth: 0,
+  },
+  instantScheduledHint: {
+    fontFamily: fonts.body,
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  durationBlock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderLeftWidth: 4,
+    zIndex: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    justifyContent: 'flex-start',
+    borderRadius: 4,
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+  },
+  durationLabel: { fontFamily: fonts.bodySemi, fontSize: 11, lineHeight: 14 },
   scheduledTitle: { fontFamily: fonts.title, fontSize: 12, color: colors.greenDark },
-  scheduledTime: { fontFamily: fonts.body, fontSize: 10, color: colors.textMuted, marginTop: 1 },
+  scheduledTimeRight: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 11,
+    color: colors.greenDark,
+    flexShrink: 0,
+    textAlign: 'right',
+    minWidth: 42,
+    paddingLeft: 6,
+  },
   eventBlock: {
     position: 'absolute',
     borderRadius: 5,
     paddingVertical: 4,
-    justifyContent: 'flex-start',
+    paddingHorizontal: 4,
+    justifyContent: 'center',
     zIndex: 2,
     overflow: 'hidden',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
   },
+  eventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    flex: 1,
+  },
+  eventBody: { flex: 1, minWidth: 0 },
   eventTitle: { fontFamily: fonts.title, fontSize: 13, color: colors.white, lineHeight: 16 },
   eventTitleNarrow: { fontSize: 11, lineHeight: 14 },
-  eventDetail: { fontFamily: fonts.body, fontSize: 11, color: 'rgba(255,255,255,0.92)', marginTop: 2, lineHeight: 14 },
+  eventDetail: { fontFamily: fonts.body, fontSize: 11, color: 'rgba(255,255,255,0.92)', marginTop: 1, lineHeight: 13 },
   eventDetailNarrow: { fontSize: 10, lineHeight: 12 },
-  eventTime: { fontFamily: fonts.body, fontSize: 10, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
+  eventTimeRight: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.95)',
+    flexShrink: 0,
+    textAlign: 'right',
+    minWidth: 42,
+    paddingLeft: 6,
+  },
+  timeRightTight: { fontSize: 10, minWidth: 36 },
   textTight: { fontSize: 10, lineHeight: 12 },
 });

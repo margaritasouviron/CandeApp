@@ -22,10 +22,10 @@ import {
   dateKey,
   fetchDayJournal,
   fetchMonthEventDays,
-  fetchSleepBlocksForDay,
+  fetchDurationBlocksForDay,
   fetchWeekJournalTitles,
+  type DurationBlock,
   type JournalLogItem,
-  type SleepBlock,
 } from '../../lib/careEvents';
 import { EVENT_LABELS, EVENT_TYPES } from '../../lib/eventTypes';
 import { fetchUpcomingDoses, registroParamsFromDose, type UpcomingDose } from '../../lib/medicationSchedules';
@@ -58,7 +58,7 @@ export default function CalendarScreen() {
   const [month, setMonth] = useState(new Date().getMonth());
   const [eventDays, setEventDays] = useState<Map<string, Set<string>>>(new Map());
   const [dayLogs, setDayLogs] = useState<JournalLogItem[]>([]);
-  const [sleepBlocks, setSleepBlocks] = useState<SleepBlock[]>([]);
+  const [durationBlocks, setDurationBlocks] = useState<DurationBlock[]>([]);
   const [weekData, setWeekData] = useState<{ days: string[]; byDay: Map<string, JournalLogItem[]> } | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingDose[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,12 +101,12 @@ export default function CalendarScreen() {
       setUpcoming(upcomingList);
 
       if (mode === 'day') {
-        const [logs, sleeps] = await Promise.all([
+        const [logs, durations] = await Promise.all([
           fetchDayJournal(patient.id, selectedDate),
-          fetchSleepBlocksForDay(patient.id, selectedDate),
+          fetchDurationBlocksForDay(patient.id, selectedDate),
         ]);
         setDayLogs(logs);
-        setSleepBlocks(sleeps);
+        setDurationBlocks(durations);
       } else if (mode === 'week') {
         setWeekData(await fetchWeekJournalTitles(patient.id, selectedDate));
       }
@@ -183,7 +183,7 @@ export default function CalendarScreen() {
                 <DayTimeGrid
                   dateStr={selectedDate}
                   logs={dayLogs}
-                  sleepBlocks={sleepBlocks}
+                  durationBlocks={durationBlocks}
                   scheduled={upcoming}
                   onLogPress={(logId) => router.push(`/log/${logId}`)}
                 />

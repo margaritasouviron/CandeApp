@@ -14,7 +14,14 @@ import {
 } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../lib/auth';
-import { EVENT_LABELS, type EventType } from '../lib/eventTypes';
+import {
+  EVENT_LABELS,
+  REGISTRO_TIPOS,
+  TERAPIA_PRESETS,
+  isDurationEventType,
+  registroChipColors,
+  type RegistroTipo,
+} from '../lib/eventTypes';
 import { refreshMedicationAlerts } from '../lib/medicationAlerts';
 import { Screen } from '../lib/screen';
 import { supabase } from '../lib/supabase';
@@ -22,8 +29,16 @@ import { BackButton } from '../components/BackButton';
 import { colors } from '../lib/theme';
 import { fonts } from '../lib/typography';
 
-const REGISTRO_TIPOS = ['comida', 'medicacion', 'observacion', 'nota', 'sueno'] as const;
-type RegistroTipo = (typeof REGISTRO_TIPOS)[number];
+function tipoChipStyle(active: boolean, chipTipo: RegistroTipo) {
+  const { accent, inactiveBg } = registroChipColors(chipTipo);
+  return {
+    chip: {
+      backgroundColor: active ? accent : inactiveBg,
+      borderColor: accent,
+    } as const,
+    text: { color: active ? colors.white : accent } as const,
+  };
+}
 
 type Prescription = {
   id: string;
@@ -79,14 +94,18 @@ export default function RegistroScreen() {
 
   const isConfirmMode = paramConfirm === '1' && !!paramPrescriptionId;
 
-  const [tipo, setTipo] = useState<RegistroTipo>('observacion');
+  const [tipo, setTipo] = useState<RegistroTipo>('comida');
   const [hora, setHora] = useState(() => {
     const n = new Date();
     return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
   });
-  const [contenido, setContenido] = useState('');
-  const [sleepStart, setSleepStart] = useState('22:00');
-  const [sleepEnd, setSleepEnd] = useState('07:00');
+  const [comidaFormato, setComidaFormato] = useState<'sopa' | 'jugo'>('sopa');
+  const [comidaMl, setComidaMl] = useState('');
+  const [rangeStart, setRangeStart] = useState('09:00');
+  const [rangeEnd, setRangeEnd] = useState('10:00');
+  const [terapiaTipo, setTerapiaTipo] = useState<string>('musicoterapia');
+  const [terapiaOtra, setTerapiaOtra] = useState('');
+  const [terapiaCustomOpen, setTerapiaCustomOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
@@ -180,6 +199,49 @@ export default function RegistroScreen() {
         setDosis(rx.dosis_estandar);
         setEditIntervalo(String(rx.intervalo_horas));
       }
+    }
+  };
+
+  const saveDurationLog = async (
+    pid: string,
+    logTipo: RegistroTipo,
+    startHm: string,
+    endHm: string,
+    subtipo?: string | null
+  ) => {
+    const inicio = parseTimeOnDate(paramDate, startHm);
+    let fin = parseTimeOnDate(paramDate, endHm);
+    if (fin.getTime() <= inicio.getTime()) {
+      fin = new Date(fin.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    const { data: log, error: logError } = await supabase
+      .from('care_logs')
+      .insert({
+        patient_id: pid,
+        tipo: logTipo,
+        registrado_por: session!.user.id,
+        registrado_en: inicio.toISOString(),
+      })
+      .select('id')
+      .single();
+    if (logError) throw logError;
+
+    if (logTipo === 'sueno') {
+      const { error } = await supabase.from('sleep_entries').insert({
+        care_log_id: log.id,
+        inicio: inicio.toISOString(),
+        fin: fin.toISOString(),
+      });
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('activity_blocks').insert({
+        care_log_id: log.id,
+        inicio: inicio.toISOString(),
+        fin: fin.toISOString(),
+        subtipo: subtipo ?? null,
+      });
+      if (error) throw error;
     }
   };
 
@@ -290,65 +352,45 @@ export default function RegistroScreen() {
 
       if (tipo === 'medicacion') {
         await saveMedication(patient.id);
-      } else if (tipo === 'sueno') {
-        const inicio = parseTimeOnDate(paramDate, sleepStart);
-        let fin = parseTimeOnDate(paramDate, sleepEnd);
-        if (fin.getTime() <= inicio.getTime()) {
-          fin = new Date(fin.getTime() + 24 * 60 * 60 * 1000);
+      } else if (isDurationEventType(tipo)) {
+        let subtipo: string | null = null;
+        if (tipo === 'terapia') {
+          if (terapiaTipo === 'otra') {
+            if (!terapiaOtra.trim()) {
+              Alert.alert('Error', 'Indica el tipo de terapia');
+              return;
+            }
+            subtipo = terapiaOtra.trim().toLowerCase();
+          } else {
+            subtipo = terapiaTipo;
+          }
         }
-
-        const { data: log, error: logError } = await supabase
-          .from('care_logs')
-          .insert({
-            patient_id: patient.id,
-            tipo: 'sueno',
-            registrado_por: session.user.id,
-            registrado_en: inicio.toISOString(),
-          })
-          .select('id')
-          .single();
-
-        if (logError) throw logError;
-
-        const { error: sleepError } = await supabase.from('sleep_entries').insert({
-          care_log_id: log.id,
-          inicio: inicio.toISOString(),
-          fin: fin.toISOString(),
-        });
-        if (sleepError) throw sleepError;
-      } else {
-        if (!contenido.trim()) {
-          Alert.alert('Error', 'Escribe una descripción');
+        await saveDurationLog(patient.id, tipo, rangeStart, rangeEnd, subtipo);
+      } else if (tipo === 'comida') {
+        const ml = parseFloat(comidaMl.replace(',', '.'));
+        if (!Number.isFinite(ml) || ml <= 0) {
+          Alert.alert('Error', 'Indica los mililitros suministrados');
           return;
         }
-
         const registradoEn = parseTimeOnDate(paramDate, hora);
-
         const { data: log, error: logError } = await supabase
           .from('care_logs')
           .insert({
             patient_id: patient.id,
-            tipo,
+            tipo: 'comida',
             registrado_por: session.user.id,
             registrado_en: registradoEn.toISOString(),
           })
           .select('id')
           .single();
-
         if (logError) throw logError;
-
-        if (tipo === 'comida') {
-          await supabase.from('meal_entries').insert({
-            care_log_id: log.id,
-            tipo_comida: 'otro',
-            descripcion: contenido.trim(),
-          });
-        } else {
-          await supabase.from('observations').insert({
-            care_log_id: log.id,
-            contenido: contenido.trim(),
-          });
-        }
+        const { error: mealErr } = await supabase.from('meal_entries').insert({
+          care_log_id: log.id,
+          tipo_comida: comidaFormato,
+          mililitros: ml,
+          descripcion: `${comidaFormato} ${ml} ml`,
+        });
+        if (mealErr) throw mealErr;
       }
 
       await refreshMedicationAlerts();
@@ -356,9 +398,11 @@ export default function RegistroScreen() {
       const successMessage =
         tipo === 'medicacion'
           ? `Medicación registrada. Próxima dosis: ${formatDateTime(proximaDosis.toISOString())}`
-          : tipo === 'sueno'
-            ? `Sueño registrado (${sleepStart} – ${sleepEnd})`
-            : 'Evento agregado correctamente';
+          : isDurationEventType(tipo)
+            ? `${EVENT_LABELS[tipo]} registrado (${rangeStart} – ${rangeEnd})`
+            : tipo === 'comida'
+              ? `${comidaFormato === 'sopa' ? 'Sopa' : 'Jugo'}: ${comidaMl} ml`
+              : 'Evento agregado correctamente';
 
       router.replace({
         pathname: '/(tabs)/calendar',
@@ -370,6 +414,8 @@ export default function RegistroScreen() {
       setSaving(false);
     }
   };
+
+  const saveAccent = registroChipColors(isConfirmMode ? 'medicacion' : tipo).accent;
 
   return (
     <Screen>
@@ -390,18 +436,21 @@ export default function RegistroScreen() {
           <>
             <Text style={styles.label}>Tipo</Text>
             <View style={styles.chips}>
-              {REGISTRO_TIPOS.map((t) => (
-                <Pressable key={t} onPress={() => setTipo(t)} style={[styles.chip, tipo === t && styles.chipActive]}>
-                  <Text style={[styles.chipText, tipo === t && styles.chipTextActive]}>{EVENT_LABELS[t as EventType]}</Text>
-                </Pressable>
-              ))}
+              {REGISTRO_TIPOS.map((t) => {
+                const chip = tipoChipStyle(tipo === t, t);
+                return (
+                  <Pressable key={t} onPress={() => setTipo(t)} style={[styles.chip, chip.chip]}>
+                    <Text style={[styles.chipText, chip.text]}>{EVENT_LABELS[t]}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
           </>
         )}
 
-        {tipo !== 'sueno' && (
+        {(tipo === 'comida' || tipo === 'medicacion') && (
           <>
-            <Text style={styles.label}>Hora</Text>
+            <Text style={styles.label}>Hora del suministro</Text>
             <TextInput
               style={styles.input}
               value={hora}
@@ -409,6 +458,31 @@ export default function RegistroScreen() {
               placeholder="HH:MM"
               placeholderTextColor={colors.textMuted}
               editable={!isConfirmMode}
+            />
+          </>
+        )}
+
+        {tipo === 'comida' && (
+          <>
+            <Text style={styles.label}>Tipo</Text>
+            <View style={styles.chips}>
+              {(['sopa', 'jugo'] as const).map((f) => {
+                const chip = tipoChipStyle(comidaFormato === f, 'comida');
+                return (
+                  <Pressable key={f} onPress={() => setComidaFormato(f)} style={[styles.chip, chip.chip]}>
+                    <Text style={[styles.chipText, chip.text]}>{f === 'sopa' ? 'Sopa' : 'Jugo'}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.label}>Mililitros suministrados</Text>
+            <TextInput
+              style={styles.input}
+              value={comidaMl}
+              onChangeText={setComidaMl}
+              keyboardType="decimal-pad"
+              placeholder="Ej. 200"
+              placeholderTextColor={colors.textMuted}
             />
           </>
         )}
@@ -475,42 +549,84 @@ export default function RegistroScreen() {
               </View>
             )}
           </View>
-        ) : tipo === 'sueno' ? (
+        ) : isDurationEventType(tipo) ? (
           <>
-            <Text style={styles.label}>Durmió desde</Text>
+            {tipo === 'terapia' && (
+              <>
+                <Text style={styles.label}>Tipo de terapia</Text>
+                <View style={styles.chips}>
+                  {TERAPIA_PRESETS.map((t) => {
+                    const active = terapiaTipo === t && !terapiaCustomOpen;
+                    const chip = tipoChipStyle(active, 'terapia');
+                    return (
+                      <Pressable
+                        key={t}
+                        onPress={() => {
+                          setTerapiaTipo(t);
+                          setTerapiaCustomOpen(false);
+                        }}
+                        style={[styles.chip, chip.chip]}
+                      >
+                        <Text style={[styles.chipText, chip.text]}>
+                          {t === 'musicoterapia' ? 'Musicoterapia' : 'Kinesiología'}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                  {(() => {
+                    const chip = tipoChipStyle(terapiaCustomOpen, 'terapia');
+                    return (
+                      <Pressable
+                        onPress={() => {
+                          setTerapiaTipo('otra');
+                          setTerapiaCustomOpen(true);
+                        }}
+                        style={[styles.chip, chip.chip]}
+                      >
+                        <Text style={[styles.chipText, chip.text]}>+ Otra</Text>
+                      </Pressable>
+                    );
+                  })()}
+                </View>
+                {terapiaCustomOpen && (
+                  <>
+                    <Text style={styles.label}>Nombre de la terapia</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={terapiaOtra}
+                      onChangeText={setTerapiaOtra}
+                      placeholder="Ej. Fonoaudiología"
+                      placeholderTextColor={colors.textMuted}
+                    />
+                  </>
+                )}
+              </>
+            )}
+            <Text style={styles.label}>Desde</Text>
             <TextInput
               style={styles.input}
-              value={sleepStart}
-              onChangeText={setSleepStart}
+              value={rangeStart}
+              onChangeText={setRangeStart}
               placeholder="HH:MM"
               placeholderTextColor={colors.textMuted}
             />
             <Text style={styles.label}>Hasta</Text>
             <TextInput
               style={styles.input}
-              value={sleepEnd}
-              onChangeText={setSleepEnd}
+              value={rangeEnd}
+              onChangeText={setRangeEnd}
               placeholder="HH:MM"
               placeholderTextColor={colors.textMuted}
             />
             <Text style={styles.hint}>Si termina al día siguiente, se calcula automáticamente.</Text>
           </>
-        ) : (
-          <>
-            <Text style={styles.label}>Notas</Text>
-            <TextInput
-              style={styles.textArea}
-              value={contenido}
-              onChangeText={setContenido}
-              multiline
-              numberOfLines={4}
-              placeholder="Describe el evento…"
-              placeholderTextColor={colors.textMuted}
-            />
-          </>
-        )}
+        ) : null}
 
-        <Pressable style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+        <Pressable
+          style={[styles.saveBtn, { backgroundColor: saveAccent, borderColor: saveAccent }]}
+          onPress={handleSave}
+          disabled={saving}
+        >
           {saving ? (
             <ActivityIndicator color={colors.white} />
           ) : (
@@ -557,13 +673,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
-    backgroundColor: colors.card,
     borderWidth: 1.5,
-    borderColor: colors.pinkStrong,
   },
-  chipActive: { backgroundColor: colors.pinkDeep, borderColor: colors.pinkDeep },
-  chipText: { fontFamily: fonts.bodySemi, color: colors.text, fontSize: 13 },
-  chipTextActive: { color: colors.white },
+  chipText: { fontFamily: fonts.bodySemi, fontSize: 13 },
   input: {
     borderWidth: 2,
     borderColor: colors.border,
@@ -599,13 +711,11 @@ const styles = StyleSheet.create({
   placeholder: { color: colors.textMuted },
   chevron: { color: colors.textMuted },
   saveBtn: {
-    backgroundColor: colors.pinkDeep,
     borderRadius: 10,
     paddingVertical: 13,
     alignItems: 'center',
     marginTop: 24,
     borderWidth: 1.5,
-    borderColor: colors.pinkDeep,
   },
   saveBtnText: { fontFamily: fonts.title, color: colors.white, fontSize: 16 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },

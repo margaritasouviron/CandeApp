@@ -162,13 +162,14 @@ export default function HomeScreen() {
             <Text style={styles.empty}>Todavía no hay registros</Text>
           ) : (
             recent.map((log) => (
-              <EventCard
-                key={log.id}
-                plain
-                tipo={log.tipo}
-                time={formatTime(log.registrado_en)}
-                title={log.detail || EVENT_LABELS[log.tipo]}
-              />
+              <Pressable key={log.id} onPress={() => router.push(`/log/${log.id}`)} style={styles.recentRow}>
+                <EventCard
+                  plain
+                  tipo={log.tipo}
+                  time={formatTime(log.registrado_en)}
+                  title={log.detail || EVENT_LABELS[log.tipo]}
+                />
+              </Pressable>
             ))
           )}
 
@@ -239,6 +240,7 @@ const styles = StyleSheet.create({
   plainTime: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.textMuted },
   plainTitle: { fontFamily: fonts.title, fontSize: 15, color: colors.text, marginTop: 2 },
   plainMeta: { fontFamily: fonts.body, fontSize: 12, color: colors.greenDark, marginTop: 2 },
+  recentRow: { ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null) },
   linkMore: {
     fontFamily: fonts.bodySemi,
     color: colors.pinkDeep,

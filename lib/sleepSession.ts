@@ -27,7 +27,12 @@ export async function fetchActiveSleepSession(patientId: string): Promise<Active
   };
 }
 
-export async function startSleepSession(patientId: string, userId: string, when: Date) {
+export async function startSleepSession(
+  patientId: string,
+  userId: string,
+  when: Date,
+  authorship?: { realizado_por: string | null }
+) {
   const active = await fetchActiveSleepSession(patientId);
   if (active) {
     throw new Error('Cande ya figura como dormida. Registrá el despertar primero.');
@@ -39,6 +44,7 @@ export async function startSleepSession(patientId: string, userId: string, when:
       patient_id: patientId,
       tipo: 'sueno',
       registrado_por: userId,
+      realizado_por: authorship?.realizado_por ?? null,
       registrado_en: when.toISOString(),
     })
     .select('id')

@@ -64,10 +64,10 @@ function HomeUpcomingLine({
 }
 
 export default function HomeScreen() {
-  const { session, signOut } = useAuth();
+  const { session, signOut, role, profile } = useAuth();
+  const router = useRouter();
   const colors = useAppColors();
   const styles = useMemo(() => createHomeStyles(colors), [colors]);
-  const router = useRouter();
   const [patientName, setPatientName] = useState<string | null>(null);
   const [patientId, setPatientId] = useState<string | null>(null);
   const [reminders, setReminders] = useState<UpcomingDose[]>([]);
@@ -125,10 +125,24 @@ export default function HomeScreen() {
           refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} tintColor={colors.greenDark} />}
         >
           <View style={styles.topRow}>
-            <TabHeader title="Home" subtitle={patientName ? `Paciente: ${patientName}` : session?.user.email} />
-            <Pressable onPress={signOut} hitSlop={8}>
-              <Text style={styles.logoutText}>Salir</Text>
-            </Pressable>
+            <TabHeader
+              title="Home"
+              subtitle={
+                patientName
+                  ? `Paciente: ${patientName} · ${profile?.nombre_completo ?? 'Usuario'}`
+                  : profile?.nombre_completo ?? 'Usuario'
+              }
+            />
+            <View style={styles.topActions}>
+              {role === 'organizador' ? (
+                <Pressable onPress={() => router.push('/settings')} hitSlop={8}>
+                  <Text style={styles.settingsText}>Settings</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={signOut} hitSlop={8}>
+                <Text style={styles.logoutText}>Salir</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.navRow}>
@@ -197,6 +211,7 @@ export default function HomeScreen() {
                   tipo={log.tipo}
                   time={formatTime(log.registrado_en)}
                   title={log.detail || EVENT_LABELS[log.tipo]}
+                  authorName={log.nurseName}
                 />
               </Pressable>
             ))
@@ -221,7 +236,9 @@ function createHomeStyles(colors: AppColors) {
     container: { flex: 1 },
     content: { paddingBottom: Platform.OS === 'web' ? 120 : 140, paddingHorizontal: 20 },
     topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-    logoutText: { fontFamily: fonts.bodySemi, color: colors.pinkDeep, fontSize: 14, paddingTop: 16 },
+    topActions: { flexDirection: 'row', gap: 12, paddingTop: 16 },
+    settingsText: { fontFamily: fonts.bodySemi, color: colors.text, fontSize: 14 },
+    logoutText: { fontFamily: fonts.bodySemi, color: colors.pinkDeep, fontSize: 14 },
     navRow: { flexDirection: 'row', marginTop: 4, marginHorizontal: -4 },
     sleepShortcut: {
       marginTop: 14,

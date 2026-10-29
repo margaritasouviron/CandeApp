@@ -1,16 +1,20 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
+import { fetchMyProfile, type AppProfile } from './profiles';
 import { supabase } from './supabase';
 
-export type AppRole = 'organizador' | 'enfermera';
+export type AppRole = 'organizador' | 'enfermera' | 'standby';
 
 type AuthContextValue = {
   session: Session | null;
   role: AppRole | null;
+  profile: AppProfile | null;
   loading: boolean;
   initError: string | null;
   signIn: (email: string, password: string) => Promise<string | null>;
+  signUp: (email: string, password: string, nombreCompleto: string) => Promise<string | null>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -29,11 +33,33 @@ export async function fetchRole(userId: string): Promise<AppRole | null> {
   }
 }
 
+async function loadSessionProfile(userId: string) {
+  const [role, profile] = await Promise.all([fetchRole(userId), fetchMyProfile(userId)]);
+  return { role, profile };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
+  const [profile, setProfile] = useState<AppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
+
+  const applyUser = useCallback(async (userId: string | undefined) => {
+    if (!userId) {
+      setRole(null);
+      setProfile(null);
+      return;
+    }
+    const loaded = await loadSessionProfile(userId);
+    setRole(loaded.role);
+    setProfile(loaded.profile);
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (!session?.user.id) return;
+    await applyUser(session.user.id);
+  }, [session?.user.id, applyUser]);
 
   useEffect(() => {
     let mounted = true;
@@ -47,8 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setInitError(error.message);
         }
         setSession(data.session);
-        if (data.session) {
-          setRole(await fetchRole(data.session.user.id));
+        if (data.session?.user.id) {
+          await applyUser(data.session.user.id);
         }
       } catch (e) {
         if (!mounted) return;
@@ -62,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s);
-      setRole(s ? await fetchRole(s.user.id) : null);
+      await applyUser(s?.user.id);
       if (mounted) setLoading(false);
     });
 
@@ -70,25 +96,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [applyUser]);
 
   const signIn = async (email: string, password: string) => {
     const response = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    console.log('[auth] signInWithPassword response:', response);
     if (response.data.session) {
-      setRole(await fetchRole(response.data.session.user.id));
+      await applyUser(response.data.session.user.id);
       setInitError(null);
     }
     return response.error?.message ?? null;
   };
 
+  const signUp = async (email: string, password: string, nombreCompleto: string) => {
+    const response = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { nombre_completo: nombreCompleto.trim() },
+      },
+    });
+    if (response.error) return response.error.message;
+    if (response.data.session) {
+      await applyUser(response.data.session.user.id);
+      setInitError(null);
+    }
+    return null;
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setRole(null);
+    setProfile(null);
   };
 
   return (
-    <AuthContext.Provider value={{ session, role, loading, initError, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{ session, role, profile, loading, initError, signIn, signUp, signOut, refreshProfile }}
+    >
       {children}
     </AuthContext.Provider>
   );

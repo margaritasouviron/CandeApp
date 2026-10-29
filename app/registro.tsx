@@ -56,6 +56,8 @@ import {
 import { Screen } from '../lib/screen';
 import { supabase } from '../lib/supabase';
 import { BackButton } from '../components/BackButton';
+import { resolveCareLogAuthorship } from '../lib/careLogAuthorship';
+import { fetchCaregiverProfiles, type AppProfile } from '../lib/profiles';
 import { useThemeMode } from '../lib/ThemeModeProvider';
 import { colors } from '../lib/theme';
 import { fonts } from '../lib/typography';
@@ -111,6 +113,7 @@ function parseTimeOnDate(dateStr: string | undefined, timeStr: string): Date {
 
 export default function RegistroScreen() {
   const { session, role, loading: authLoading } = useAuth();
+  const isStandby = role === 'standby';
   const { refreshTheme } = useThemeMode();
   const router = useRouter();
   const {
@@ -171,6 +174,8 @@ export default function RegistroScreen() {
   const [stockLinesLoading, setStockLinesLoading] = useState(false);
   const [activeSleep, setActiveSleep] = useState<ActiveSleepSession | null>(null);
   const [activeMeal, setActiveMeal] = useState<ActiveMealSession | null>(null);
+  const [caregivers, setCaregivers] = useState<AppProfile[]>([]);
+  const [selectedCaregiverId, setSelectedCaregiverId] = useState<string | null>(null);
 
   const isOrganizador = role === 'organizador';
   const isNewMed = selectedMedId === NEW_MED_ID;
@@ -249,8 +254,13 @@ export default function RegistroScreen() {
       void fetchInventory(data.id).then(setInventoryItems).catch(() => setInventoryItems([]));
       void loadActiveSleep(data.id);
       void loadActiveMeal(data.id);
+      if (role === 'standby') {
+        void fetchCaregiverProfiles()
+          .then(setCaregivers)
+          .catch(() => setCaregivers([]));
+      }
     });
-  }, [session, loadPrescriptions, loadActiveSleep, loadActiveMeal]);
+  }, [session, role, loadPrescriptions, loadActiveSleep, loadActiveMeal]);
 
   useEffect(() => {
     if (paramTipo === SLEEP_EVENT_TYPE || paramSleepShortcut === '1') {
@@ -375,6 +385,9 @@ export default function RegistroScreen() {
     }
   };
 
+  const careAuthorship = () =>
+    resolveCareLogAuthorship(session!.user.id, role, selectedCaregiverId);
+
   const saveDurationLog = async (
     pid: string,
     logTipo: RegistroTipo,
@@ -382,6 +395,7 @@ export default function RegistroScreen() {
     endHm: string,
     subtipo?: string | null
   ) => {
+    const authorship = careAuthorship();
     const inicio = parseTimeOnDate(paramDate, startHm);
     let fin = parseTimeOnDate(paramDate, endHm);
     if (fin.getTime() <= inicio.getTime()) {
@@ -393,7 +407,8 @@ export default function RegistroScreen() {
       .insert({
         patient_id: pid,
         tipo: logTipo,
-        registrado_por: session!.user.id,
+        registrado_por: authorship.registrado_por,
+        realizado_por: authorship.realizado_por,
         registrado_en: inicio.toISOString(),
       })
       .select('id')
@@ -528,13 +543,15 @@ export default function RegistroScreen() {
 
     const administradoEn = parseTimeOnDate(paramDate, hora);
     const proxima = addHours(administradoEn, intervaloHoras);
+    const authorship = careAuthorship();
 
     const { data: log, error: logError } = await supabase
       .from('care_logs')
       .insert({
         patient_id: pid,
         tipo: 'medicacion',
-        registrado_por: session.user.id,
+        registrado_por: authorship.registrado_por,
+        realizado_por: authorship.realizado_por,
         registrado_en: administradoEn.toISOString(),
       })
       .select('id')
@@ -584,10 +601,13 @@ export default function RegistroScreen() {
 
       if (tipo === SLEEP_EVENT_TYPE) {
         const when = parseTimeOnDate(paramDate, hora);
+        const authorship = careAuthorship();
         if (activeSleep) {
           await endSleepSession(activeSleep.careLogId, when, activeSleep.inicio);
         } else {
-          await startSleepSession(patient.id, session!.user.id, when);
+          await startSleepSession(patient.id, session!.user.id, when, {
+            realizado_por: authorship.realizado_por,
+          });
         }
         await loadActiveSleep(patient.id);
         await refreshTheme();
@@ -609,6 +629,7 @@ export default function RegistroScreen() {
         await saveDurationLog(patient.id, tipo, rangeStart, rangeEnd, subtipo);
       } else if (tipo === 'comida') {
         const when = parseTimeOnDate(paramDate, hora);
+        const authorship = careAuthorship();
         if (activeMeal) {
           await endMealSession(activeMeal.careLogId, when, activeMeal.inicio);
         } else {
@@ -623,11 +644,17 @@ export default function RegistroScreen() {
             Alert.alert('Error', 'Indica una velocidad válida (ml/h) o dejá el campo vacío');
             return;
           }
-          await startMealSession(patient.id, session!.user.id, when, {
-            tipoComida: comidaFormato,
-            mililitros: ml,
-            velocidadMlH: velocidadMlH ?? null,
-          });
+          await startMealSession(
+            patient.id,
+            session!.user.id,
+            when,
+            {
+              tipoComida: comidaFormato,
+              mililitros: ml,
+              velocidadMlH: velocidadMlH ?? null,
+            },
+            { realizado_por: authorship.realizado_por }
+          );
         }
         await loadActiveMeal(patient.id);
       } else if (isStockConsumptionEventType(tipo)) {
@@ -642,10 +669,12 @@ export default function RegistroScreen() {
             };
           })
           .filter((l) => Number.isFinite(l.cantidad) && l.cantidad > 0);
+        const authorship = careAuthorship();
         await saveCareLogWithStockConsumption({
           patientId: patient.id,
           tipo,
-          registradoPor: session!.user.id,
+          registradoPor: authorship.registrado_por,
+          realizadoPor: authorship.realizado_por,
           registradoEn: parseTimeOnDate(paramDate, hora),
           lines,
         });
@@ -680,6 +709,8 @@ export default function RegistroScreen() {
         Alert.alert('Sueño', msg);
       } else if (msg.includes('botón ya está conectado')) {
         Alert.alert('Comida', msg);
+      } else if (msg.includes('completando este registro')) {
+        Alert.alert('Registro', msg);
       } else if (/row-level security|rx_insert|42501/i.test(msg)) {
         Alert.alert(
           'Error',
@@ -715,6 +746,35 @@ export default function RegistroScreen() {
               Revisá los datos y confirmá la administración de {selectedPrescription.nombre}
             </Text>
           </View>
+        )}
+
+        {isStandby && (
+          <>
+            <Text style={styles.label}>¿Quién completa este registro?</Text>
+            <Text style={styles.hint}>Obligatorio en la tablet del cuarto.</Text>
+            <View style={styles.chips}>
+              {caregivers.map((c) => {
+                const active = selectedCaregiverId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => setSelectedCaregiverId(c.id)}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor: active ? colors.greenDark : colors.brownLight,
+                        borderColor: colors.greenDark,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: active ? colors.white : colors.text }]}>
+                      {c.nombre_completo}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
         )}
 
         {!isConfirmMode && (

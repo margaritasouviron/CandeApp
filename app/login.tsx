@@ -10,7 +10,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { Redirect } from 'expo-router';
+import { Link, Redirect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 import { Screen } from '../lib/screen';
 import { isSupabaseConfigured, getSupabaseConfigHint, getSupabaseConfigStatus } from '../lib/supabase';
@@ -102,6 +102,12 @@ export default function LoginScreen() {
             <Text style={styles.buttonText}>Iniciar sesión</Text>
           )}
         </Pressable>
+
+        <Link href="/signup" asChild>
+          <Pressable style={styles.linkWrap}>
+            <Text style={styles.link}>Primera vez → Crear cuenta</Text>
+          </Pressable>
+        </Link>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -188,4 +194,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  linkWrap: { marginTop: 16, alignItems: 'center' },
+  link: { fontSize: 14, fontWeight: '600', color: colors.pinkDeep },
 });

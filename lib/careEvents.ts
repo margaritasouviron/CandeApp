@@ -34,9 +34,27 @@ export type JournalLogItem = {
   registrado_en: string;
   title: string;
   detail: string;
+  authorName?: string;
   /** Comida con botón conectado/desconectado (bloque en calendario) */
   mealHasInterval?: boolean;
 };
+
+function authorFromRow(row: {
+  realizado_por?: string | null;
+  realizador?:
+    | { nombre_completo?: string | null }
+    | { nombre_completo?: string | null }[]
+    | null;
+  profiles?:
+    | { nombre_completo?: string | null }
+    | { nombre_completo?: string | null }[]
+    | null;
+}): string {
+  const realizador = Array.isArray(row.realizador) ? row.realizador[0] : row.realizador;
+  const registrador = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  if (realizador?.nombre_completo) return realizador.nombre_completo;
+  return registrador?.nombre_completo ?? 'Usuario';
+}
 
 export type SleepBlock = {
   inicio: string;
@@ -77,6 +95,15 @@ function mapLogRow(row: {
   id: string;
   tipo: string;
   registrado_en: string;
+  realizado_por?: string | null;
+  profiles?:
+    | { nombre_completo?: string | null }
+    | { nombre_completo?: string | null }[]
+    | null;
+  realizador?:
+    | { nombre_completo?: string | null }
+    | { nombre_completo?: string | null }[]
+    | null;
   observations?: { contenido: string } | { contenido: string }[] | null;
   meal_entries?:
     | {
@@ -164,6 +191,7 @@ function mapLogRow(row: {
     registrado_en: row.registrado_en,
     title,
     detail,
+    authorName: authorFromRow(row as Parameters<typeof authorFromRow>[0]),
     mealHasInterval: row.tipo === 'comida' && !!meal?.inicio,
   };
 }
@@ -196,7 +224,9 @@ export async function fetchDayJournal(patientId: string, dateStr: string): Promi
   const { data, error } = await supabase
     .from('care_logs')
     .select(`
-      id, tipo, registrado_en,
+      id, tipo, registrado_en, realizado_por,
+      profiles:registrado_por ( nombre_completo ),
+      realizador:realizado_por ( nombre_completo ),
       observations ( contenido ),
       meal_entries ( descripcion, tipo_comida, mililitros, inicio, fin, velocidad_ml_h ),
       medication_administrations ( nombre_medicamento, dosis ),
@@ -302,8 +332,9 @@ export async function fetchSleepBlocksForDay(patientId: string, dateStr: string)
 }
 
 const detailSelect = `
-  id, patient_id, tipo, registrado_en, registrado_por,
+  id, patient_id, tipo, registrado_en, registrado_por, realizado_por,
   profiles:registrado_por ( nombre_completo ),
+  realizador:realizado_por ( nombre_completo ),
   observations ( contenido ),
   meal_entries ( descripcion, tipo_comida, mililitros, inicio, fin, velocidad_ml_h ),
   medication_administrations ( nombre_medicamento, dosis, administrado_en ),
@@ -318,7 +349,7 @@ export async function fetchCareLogDetail(id: string): Promise<CareLogDetail | nu
   if (!data) return null;
 
   const journal = mapLogRow(data);
-  const prof = Array.isArray(data.profiles) ? data.profiles[0] : data.profiles;
+  const authorName = authorFromRow(data);
   const obs = Array.isArray(data.observations) ? data.observations[0] : data.observations;
   const meal = Array.isArray(data.meal_entries) ? data.meal_entries[0] : data.meal_entries;
   const med = Array.isArray(data.medication_administrations)
@@ -357,7 +388,7 @@ export async function fetchCareLogDetail(id: string): Promise<CareLogDetail | nu
     tipo: data.tipo as EventType,
     registrado_en: data.registrado_en,
     registrado_por: data.registrado_por,
-    authorName: prof?.nombre_completo ?? 'Usuario',
+    authorName,
     title: journal.title,
     detail,
     editableText,
@@ -579,8 +610,9 @@ export async function fetchRecentLogs(limit = 30, tipoFilter?: EventType[], pati
   let q = supabase
     .from('care_logs')
     .select(`
-      id, tipo, registrado_en, registrado_por,
+      id, tipo, registrado_en, registrado_por, realizado_por,
       profiles:registrado_por ( nombre_completo ),
+      realizador:realizado_por ( nombre_completo ),
       observations ( contenido ),
       meal_entries ( descripcion, tipo_comida, mililitros, inicio, fin, velocidad_ml_h ),
       medication_administrations ( nombre_medicamento, dosis ),
@@ -603,8 +635,6 @@ export async function fetchRecentLogs(limit = 30, tipoFilter?: EventType[], pati
       ? row.medication_administrations[0]
       : row.medication_administrations;
     const sleep = Array.isArray(row.sleep_entries) ? row.sleep_entries[0] : row.sleep_entries;
-    const prof = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-
     let detail = obs?.contenido ?? meal?.descripcion ?? '';
     if (med) detail = `${med.nombre_medicamento} ${med.dosis}`;
     if (row.tipo === 'sueno' && sleep) {
@@ -616,7 +646,7 @@ export async function fetchRecentLogs(limit = 30, tipoFilter?: EventType[], pati
       tipo: row.tipo as EventType,
       registrado_en: row.registrado_en,
       registrado_por: row.registrado_por,
-      nurseName: prof?.nombre_completo,
+      nurseName: authorFromRow(row),
       detail,
     } as CareLogListItem;
   });

@@ -44,7 +44,8 @@ export async function startMealSession(
   patientId: string,
   userId: string,
   when: Date,
-  input: { tipoComida: 'sopa' | 'jugo'; mililitros: number; velocidadMlH: number | null }
+  input: { tipoComida: 'sopa' | 'jugo'; mililitros: number; velocidadMlH: number | null },
+  authorship?: { realizado_por: string | null }
 ) {
   const active = await fetchActiveMealSession(patientId);
   if (active) {
@@ -62,6 +63,7 @@ export async function startMealSession(
       patient_id: patientId,
       tipo: 'comida',
       registrado_por: userId,
+      realizado_por: authorship?.realizado_por ?? null,
       registrado_en: when.toISOString(),
     })
     .select('id')

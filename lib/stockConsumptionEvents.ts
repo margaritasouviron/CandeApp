@@ -67,6 +67,7 @@ export async function saveCareLogWithStockConsumption(params: {
   patientId: string;
   tipo: StockConsumptionEventType;
   registradoPor: string;
+  realizadoPor?: string | null;
   registradoEn: Date;
   lines: StockConsumptionLine[];
 }) {
@@ -81,6 +82,7 @@ export async function saveCareLogWithStockConsumption(params: {
       patient_id: params.patientId,
       tipo: params.tipo,
       registrado_por: params.registradoPor,
+      realizado_por: params.realizadoPor ?? null,
       registrado_en: params.registradoEn.toISOString(),
     })
     .select('id')

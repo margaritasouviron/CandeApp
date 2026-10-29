@@ -52,14 +52,22 @@ WHERE NOT EXISTS (
   WHERE mp.patient_id = p.id AND mp.nombre = v.nombre
 );
 
--- ─── 5. Crear enfermeras (DESPUÉS de la administradora) ───
--- Authentication → Add user (cada enfermera)
--- El trigger les asigna rol enfermera automáticamente.
+-- ─── 5. Tablet standby (cuarto de Cande) ───
+-- Authentication → Add user
+--   • Email: standby@gmail.com
+--   • Password: candeapp  (cambiala en producción si querés)
+--   • Auto Confirm User
+-- El trigger asigna rol «standby». En la app, cada registro pide quién del equipo lo cargó.
 
--- ─── 6. Desactivar registro público (recomendado) ───
+-- ─── 6. Crear enfermeras (DESPUÉS de la administradora) ───
+-- Desde la app: Settings → Perfiles → Agregar perfil (correo + nombre).
+-- La persona entra en «Crear cuenta» con ese correo y elige su contraseña.
+-- (Alternativa: Authentication → Add user; hace falta invitación en profile_invites tras migración 026.)
+
+-- ─── 7. Desactivar registro público (recomendado) ───
 -- Authentication → Providers → Email → desactivar "Enable sign ups"
 
--- ─── 7. Verificación final ───
+-- ─── 8. Verificación final ───
 SELECT 'profiles' AS tabla, count(*) FROM profiles
 UNION ALL SELECT 'patient', count(*) FROM patient
 UNION ALL SELECT 'medication_prescriptions', count(*) FROM medication_prescriptions;

@@ -1,11 +1,28 @@
 import { supabase } from './supabase';
 
+export const INVENTORY_MED_PREFIX = 'inv:';
+
+export function inventoryMedPickerId(itemId: string) {
+  return `${INVENTORY_MED_PREFIX}${itemId}`;
+}
+
+export function parseInventoryMedPickerId(pickerId: string | null | undefined) {
+  if (!pickerId?.startsWith(INVENTORY_MED_PREFIX)) return null;
+  return pickerId.slice(INVENTORY_MED_PREFIX.length);
+}
+
 export type InventoryItem = {
   id: string;
   nombre: string;
   categoria: string | null;
   cantidad_actual: number;
   cantidad_minima: number;
+  consumo_mensual: number;
+  presentacion: string | null;
+  consumo_proteina?: number;
+  consumo_limpieza_boton?: number;
+  consumo_cambio_panal?: number;
+  consumo_gotitas_ojos?: number;
   unidad: string;
   prescription_id?: string | null;
 };
@@ -18,7 +35,9 @@ export function normalizeInventoryName(nombre: string) {
 export async function fetchInventory(patientId: string) {
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, nombre, categoria, cantidad_actual, cantidad_minima, unidad, prescription_id')
+    .select(
+      'id, nombre, categoria, cantidad_actual, cantidad_minima, consumo_mensual, presentacion, consumo_proteina, consumo_limpieza_boton, consumo_cambio_panal, consumo_gotitas_ojos, unidad, prescription_id'
+    )
     .eq('patient_id', patientId)
     .order('nombre');
   if (error) throw error;
@@ -41,6 +60,11 @@ export async function findPrescriptionByName(patientId: string, nombre: string) 
     .ilike('nombre', nombre.trim())
     .maybeSingle();
   return data?.id as string | undefined;
+}
+
+export function findPrescriptionInList<T extends { nombre: string }>(list: T[], nombre: string) {
+  const key = normalizeInventoryName(nombre);
+  return list.find((p) => normalizeInventoryName(p.nombre) === key);
 }
 
 export async function addPurchase(params: {
@@ -69,6 +93,8 @@ export async function createInventoryItem(params: {
   categoria?: string;
   cantidad: number;
   minima: number;
+  consumoMensual?: number;
+  presentacion?: string;
   unidad: string;
   prescriptionId?: string;
 }) {
@@ -85,6 +111,8 @@ export async function createInventoryItem(params: {
       categoria: params.categoria?.trim() || (params.prescriptionId ? 'medicacion' : null),
       cantidad_actual: params.cantidad,
       cantidad_minima: params.minima,
+      consumo_mensual: params.consumoMensual ?? 0,
+      presentacion: params.presentacion?.trim() || null,
       unidad: params.unidad.trim(),
       prescription_id: params.prescriptionId ?? null,
     })

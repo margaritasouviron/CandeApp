@@ -5,13 +5,14 @@ import {
   EVENT_COLORS,
   EVENT_LABELS,
   EVENT_SHADE_COLORS,
-  isDurationEventType,
+  isCalendarShadedOnlyLogType,
   isInstantEventType,
   type EventType,
 } from '../lib/eventTypes';
 import type { UpcomingDose } from '../lib/medicationSchedules';
-import { colors } from '../lib/theme';
+import { useAppColors } from '../lib/ThemeModeProvider';
 import { fonts } from '../lib/typography';
+import type { AppColors } from '../lib/theme';
 
 const HOUR_HEIGHT = 48;
 const TIME_GUTTER = 48;
@@ -157,7 +158,11 @@ function buildInstantMarkers(
   const raw: Omit<InstantMarker, 'boxTop'>[] = [];
 
   for (const log of logs) {
-    if (!isInstantEventType(log.tipo)) continue;
+    if (log.tipo === 'comida') {
+      if (log.mealHasInterval) continue;
+    } else if (!isInstantEventType(log.tipo)) {
+      continue;
+    }
     if (!sameCalendarDay(dateStr, log.registrado_en)) continue;
     raw.push({
       key: log.id,
@@ -185,7 +190,7 @@ function buildInstantMarkers(
 function buildTimedEntries(dateStr: string, logs: JournalLogItem[]): TimedEntry[] {
   const items: TimedEntry[] = [];
 
-  for (const log of logs.filter((l) => !isDurationEventType(l.tipo) && !isInstantEventType(l.tipo))) {
+  for (const log of logs.filter((l) => !isCalendarShadedOnlyLogType(l.tipo) && !isInstantEventType(l.tipo))) {
     const startIso = log.registrado_en;
     const endIso = new Date(new Date(startIso).getTime() + INSTANT_EVENT_MS).toISOString();
     const range = clampDayRange(dateStr, startIso, endIso);
@@ -215,7 +220,133 @@ function columnGeometry(col: number, colCount: number) {
   };
 }
 
+function createGridStyles(colors: AppColors) {
+  return StyleSheet.create({
+    wrap: {
+      position: 'relative',
+      height: GRID_HEIGHT,
+      backgroundColor: colors.card,
+      overflow: 'hidden',
+    },
+    hourLine: {
+      position: 'absolute',
+      left: TIME_GUTTER,
+      right: 0,
+      height: 1,
+      backgroundColor: colors.borderSoft,
+    },
+    hourLabel: {
+      position: 'absolute',
+      left: -TIME_GUTTER + 4,
+      top: -8,
+      width: TIME_GUTTER - 8,
+      fontFamily: fonts.body,
+      fontSize: 11,
+      color: colors.textMuted,
+      textAlign: 'right',
+    },
+    gridArea: {
+      marginLeft: TIME_GUTTER,
+      marginRight: 4,
+      position: 'relative',
+    },
+    instantLayer: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 4,
+    },
+    instantLine: {
+      position: 'absolute',
+      left: 0,
+      height: INSTANT_LINE_THICKNESS,
+      borderRadius: 2,
+    },
+    instantBox: {
+      position: 'absolute',
+      right: 0,
+      minHeight: INSTANT_BOX_HEIGHT,
+      borderRadius: 6,
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+      justifyContent: 'center',
+      borderLeftWidth: 3,
+      overflow: 'hidden',
+      ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+    },
+    instantBoxSolid: {
+      borderLeftWidth: 0,
+    },
+    instantScheduledHint: {
+      fontFamily: fonts.body,
+      fontSize: 10,
+      color: colors.textMuted,
+      marginTop: 1,
+    },
+    durationBlock: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      borderLeftWidth: 4,
+      zIndex: 1,
+      paddingHorizontal: 6,
+      paddingVertical: 4,
+      justifyContent: 'flex-start',
+      borderRadius: 4,
+      ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+    },
+    durationLabel: { fontFamily: fonts.bodySemi, fontSize: 11, lineHeight: 14 },
+    scheduledTitle: { fontFamily: fonts.title, fontSize: 12, color: colors.greenDark },
+    scheduledTimeRight: {
+      fontFamily: fonts.bodySemi,
+      fontSize: 11,
+      color: colors.greenDark,
+      flexShrink: 0,
+      textAlign: 'right',
+      minWidth: 42,
+      paddingLeft: 6,
+    },
+    eventBlock: {
+      position: 'absolute',
+      borderRadius: 5,
+      paddingVertical: 4,
+      paddingHorizontal: 4,
+      justifyContent: 'center',
+      zIndex: 2,
+      overflow: 'hidden',
+      ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+    },
+    eventRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 6,
+      flex: 1,
+    },
+    eventBody: { flex: 1, minWidth: 0 },
+    eventTitle: { fontFamily: fonts.title, fontSize: 13, color: colors.fabText, lineHeight: 16 },
+    eventTitleNarrow: { fontSize: 11, lineHeight: 14 },
+    eventDetail: { fontFamily: fonts.body, fontSize: 11, color: 'rgba(255,255,255,0.92)', marginTop: 1, lineHeight: 13 },
+    eventDetailNarrow: { fontSize: 10, lineHeight: 12 },
+    eventTimeRight: {
+      fontFamily: fonts.bodySemi,
+      fontSize: 11,
+      color: 'rgba(255,255,255,0.95)',
+      flexShrink: 0,
+      textAlign: 'right',
+      minWidth: 42,
+      paddingLeft: 6,
+    },
+    timeRightTight: { fontSize: 10, minWidth: 36 },
+    textTight: { fontSize: 10, lineHeight: 12 },
+  });
+}
+
 export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPress }: Props) {
+  const colors = useAppColors();
+  const styles = useMemo(() => createGridStyles(colors), [colors]);
   const dayScheduled = scheduled.filter((d) => sameCalendarDay(dateStr, d.programadoPara));
 
   const placed = useMemo(() => {
@@ -242,10 +373,11 @@ export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPre
           if (!layout) return null;
           const accent = EVENT_COLORS[block.tipo] ?? colors.greenDark;
           const fill = EVENT_SHADE_COLORS[block.tipo] ?? colors.sleepShade;
+          const linkedLog = logs.find((l) => l.id === block.careLogId);
           const label =
             block.tipo === 'terapia' && block.subtipo
               ? EVENT_LABELS.terapia
-              : EVENT_LABELS[block.tipo] ?? block.tipo;
+              : linkedLog?.title || EVENT_LABELS[block.tipo] || block.tipo;
           return (
             <Pressable
               key={`dur-${block.careLogId}-${idx}`}
@@ -406,125 +538,3 @@ export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPre
 }
 
 export const dayTimeGridHeight = GRID_HEIGHT;
-
-const styles = StyleSheet.create({
-  wrap: {
-    position: 'relative',
-    height: GRID_HEIGHT,
-    backgroundColor: colors.card,
-    overflow: 'hidden',
-  },
-  hourLine: {
-    position: 'absolute',
-    left: TIME_GUTTER,
-    right: 0,
-    height: 1,
-    backgroundColor: colors.borderSoft,
-  },
-  hourLabel: {
-    position: 'absolute',
-    left: -TIME_GUTTER + 4,
-    top: -8,
-    width: TIME_GUTTER - 8,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    color: colors.textMuted,
-    textAlign: 'right',
-  },
-  gridArea: {
-    marginLeft: TIME_GUTTER,
-    marginRight: 4,
-    position: 'relative',
-  },
-  instantLayer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 4,
-  },
-  instantLine: {
-    position: 'absolute',
-    left: 0,
-    height: INSTANT_LINE_THICKNESS,
-    borderRadius: 2,
-  },
-  instantBox: {
-    position: 'absolute',
-    right: 0,
-    minHeight: INSTANT_BOX_HEIGHT,
-    borderRadius: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    justifyContent: 'center',
-    borderLeftWidth: 3,
-    overflow: 'hidden',
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
-  },
-  instantBoxSolid: {
-    borderLeftWidth: 0,
-  },
-  instantScheduledHint: {
-    fontFamily: fonts.body,
-    fontSize: 10,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
-  durationBlock: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    borderLeftWidth: 4,
-    zIndex: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    justifyContent: 'flex-start',
-    borderRadius: 4,
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
-  },
-  durationLabel: { fontFamily: fonts.bodySemi, fontSize: 11, lineHeight: 14 },
-  scheduledTitle: { fontFamily: fonts.title, fontSize: 12, color: colors.greenDark },
-  scheduledTimeRight: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 11,
-    color: colors.greenDark,
-    flexShrink: 0,
-    textAlign: 'right',
-    minWidth: 42,
-    paddingLeft: 6,
-  },
-  eventBlock: {
-    position: 'absolute',
-    borderRadius: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    justifyContent: 'center',
-    zIndex: 2,
-    overflow: 'hidden',
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
-  },
-  eventRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-    flex: 1,
-  },
-  eventBody: { flex: 1, minWidth: 0 },
-  eventTitle: { fontFamily: fonts.title, fontSize: 13, color: colors.white, lineHeight: 16 },
-  eventTitleNarrow: { fontSize: 11, lineHeight: 14 },
-  eventDetail: { fontFamily: fonts.body, fontSize: 11, color: 'rgba(255,255,255,0.92)', marginTop: 1, lineHeight: 13 },
-  eventDetailNarrow: { fontSize: 10, lineHeight: 12 },
-  eventTimeRight: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.95)',
-    flexShrink: 0,
-    textAlign: 'right',
-    minWidth: 42,
-    paddingLeft: 6,
-  },
-  timeRightTight: { fontSize: 10, minWidth: 36 },
-  textTight: { fontSize: 10, lineHeight: 12 },
-});

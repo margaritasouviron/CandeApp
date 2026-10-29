@@ -21,6 +21,7 @@ import {
   type CareLogDetail,
 } from '../../lib/careEvents';
 import { EVENT_COLORS, EVENT_LABELS, isDurationEventType } from '../../lib/eventTypes';
+import { isStockConsumptionEventType } from '../../lib/stockConsumptionEvents';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
 import { fonts } from '../../lib/typography';
@@ -87,6 +88,8 @@ export default function CareLogDetailScreen() {
         setText(row.editableText);
         if (row.sleepInicio) setSleepStart(hmFromIso(row.sleepInicio));
         if (row.sleepFin) setSleepEnd(hmFromIso(row.sleepFin));
+        if (row.mealInicio) setSleepStart(hmFromIso(row.mealInicio));
+        if (row.mealFin) setSleepEnd(hmFromIso(row.mealFin));
       }
     } catch {
       setErrorMsg('No se pudo cargar el registro');
@@ -163,8 +166,18 @@ export default function CareLogDetailScreen() {
         date,
         time,
         text,
-        sleepStart: isDurationEventType(detail.tipo) ? sleepStart : undefined,
-        sleepEnd: isDurationEventType(detail.tipo) ? sleepEnd : undefined,
+        sleepStart:
+          detail.tipo === 'sueno' ||
+          isDurationEventType(detail.tipo) ||
+          (detail.tipo === 'comida' && !!detail.mealInicio)
+            ? sleepStart
+            : undefined,
+        sleepEnd:
+          detail.tipo === 'sueno' ||
+          isDurationEventType(detail.tipo) ||
+          (detail.tipo === 'comida' && !!detail.mealInicio)
+            ? sleepEnd
+            : undefined,
       });
       setEditing(false);
       await load();
@@ -259,14 +272,48 @@ export default function CareLogDetailScreen() {
               </>
             )}
 
+            {isStockConsumptionEventType(detail.tipo) && detail.stockConsumptions?.length ? (
+              <>
+                <Text style={styles.metaLabel}>Insumos descontados</Text>
+                {detail.stockConsumptions.map((line) => (
+                  <Text key={line.itemId} style={styles.bodyText}>
+                    {line.nombre}: {line.cantidad} {line.unidad}
+                  </Text>
+                ))}
+              </>
+            ) : null}
+
             {detail.tipo === 'comida' && (
               <>
+                {detail.mealInicio ? (
+                  <>
+                    <Text style={styles.metaLabel}>Horario del botón</Text>
+                    {editing ? (
+                      <>
+                        <Text style={styles.hint}>Conexión</Text>
+                        <TextInput style={styles.input} value={sleepStart} onChangeText={setSleepStart} placeholder="HH:MM" />
+                        <Text style={styles.hint}>Desconexión (vacío si sigue conectado)</Text>
+                        <TextInput style={styles.input} value={sleepEnd} onChangeText={setSleepEnd} placeholder="HH:MM" />
+                      </>
+                    ) : (
+                      <Text style={styles.bodyText}>{detail.detail}</Text>
+                    )}
+                  </>
+                ) : null}
                 <Text style={styles.metaLabel}>Mililitros</Text>
                 {editing ? (
                   <TextInput style={styles.input} value={text} onChangeText={setText} keyboardType="decimal-pad" />
                 ) : (
-                  <Text style={styles.bodyText}>{detail.detail}</Text>
+                  <Text style={styles.bodyText}>
+                    {detail.detail.includes('ml') ? detail.detail : `${detail.detail || text} ml`}
+                  </Text>
                 )}
+                {detail.mealVelocidadMlH != null && detail.mealVelocidadMlH > 0 ? (
+                  <>
+                    <Text style={styles.metaLabel}>Velocidad</Text>
+                    <Text style={styles.bodyText}>{detail.mealVelocidadMlH} ml/h</Text>
+                  </>
+                ) : null}
               </>
             )}
 
@@ -276,6 +323,22 @@ export default function CareLogDetailScreen() {
                 <Text style={styles.metaValue}>{detail.activitySubtipo}</Text>
               </>
             ) : null}
+
+            {detail.tipo === 'sueno' && (
+              <>
+                <Text style={styles.metaLabel}>Horario de sueño</Text>
+                {editing ? (
+                  <>
+                    <Text style={styles.hint}>Desde</Text>
+                    <TextInput style={styles.input} value={sleepStart} onChangeText={setSleepStart} placeholder="HH:MM" />
+                    <Text style={styles.hint}>Hasta (vacío si sigue dormida)</Text>
+                    <TextInput style={styles.input} value={sleepEnd} onChangeText={setSleepEnd} placeholder="HH:MM" />
+                  </>
+                ) : (
+                  <Text style={styles.bodyText}>{detail.detail}</Text>
+                )}
+              </>
+            )}
 
             {isDurationEventType(detail.tipo) && (
               <>

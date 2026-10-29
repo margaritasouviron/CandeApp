@@ -6,13 +6,13 @@ import {
   TabIconHome,
   TabIconStats,
   TabIconStock,
-  tabColors,
 } from '../../components/TabIcons';
-import { colors } from '../../lib/theme';
+import { useAppColors } from '../../lib/ThemeModeProvider';
 import { fonts } from '../../lib/typography';
 
 export default function TabsLayout() {
   const { session, loading } = useAuth();
+  const colors = useAppColors();
 
   if (!loading && !session) {
     return <Redirect href="/login" />;
@@ -22,8 +22,8 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: tabColors.active,
-        tabBarInactiveTintColor: tabColors.inactive,
+        tabBarActiveTintColor: colors.greenDark,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,

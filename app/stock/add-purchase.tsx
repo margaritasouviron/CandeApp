@@ -36,6 +36,7 @@ export default function AddPurchaseScreen() {
   const [cantidad, setCantidad] = useState('');
   const [unidad, setUnidad] = useState('unidad');
   const [minima, setMinima] = useState('5');
+  const [consumoMensual, setConsumoMensual] = useState('');
   const [notas, setNotas] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -104,6 +105,7 @@ export default function AddPurchaseScreen() {
         }
         const trimmedName = nombre.trim();
         const min = parseFloat(minima.replace(',', '.'));
+        const consumo = parseFloat(consumoMensual.replace(',', '.'));
         const prescriptionId = await findPrescriptionByName(patient.id, trimmedName);
         const existingItem = await findInventoryItemByName(patient.id, trimmedName);
         if (existingItem) {
@@ -115,6 +117,7 @@ export default function AddPurchaseScreen() {
             nombre: trimmedName,
             cantidad: 0,
             minima: Number.isFinite(min) ? min : 0,
+            consumoMensual: Number.isFinite(consumo) ? consumo : 0,
             unidad: unidad.trim() || 'unidad',
             prescriptionId,
           });
@@ -206,12 +209,21 @@ export default function AddPurchaseScreen() {
                   placeholder="Ej. Paracetamol o Pañales"
                   placeholderTextColor={colors.textMuted}
                 />
-                <Text style={styles.label}>Stock mínimo (alerta)</Text>
+                <Text style={styles.label}>Umbral para reponer stock</Text>
                 <TextInput
                   style={styles.input}
                   value={minima}
                   onChangeText={setMinima}
                   keyboardType="decimal-pad"
+                  placeholderTextColor={colors.textMuted}
+                />
+                <Text style={styles.label}>Consumo teórico mensual (opcional)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={consumoMensual}
+                  onChangeText={setConsumoMensual}
+                  keyboardType="decimal-pad"
+                  placeholder="Ej. 186"
                   placeholderTextColor={colors.textMuted}
                 />
               </>

@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { Platform, StyleSheet, View, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppLayout } from './layout';
-import { colors } from './theme';
+import { useAppColors } from './ThemeModeProvider';
 
 type ScreenProps = {
   children: ReactNode;
@@ -13,6 +13,7 @@ type ScreenProps = {
 
 export function Screen({ children, style, edges = ['top', 'left', 'right'], centered = true }: ScreenProps) {
   const { isWeb, contentMaxWidth } = useAppLayout();
+  const colors = useAppColors();
 
   const inner = isWeb && centered && contentMaxWidth ? (
     <View style={[styles.webFrame, { maxWidth: contentMaxWidth }]}>{children}</View>
@@ -22,14 +23,14 @@ export function Screen({ children, style, edges = ['top', 'left', 'right'], cent
 
   if (isWeb) {
     return (
-      <View style={[styles.safe, styles.safeWeb, style]}>
+      <View style={[styles.safe, styles.safeWeb, { backgroundColor: colors.background }, style]}>
         {inner}
       </View>
     );
   }
 
   return (
-    <SafeAreaView edges={edges} style={[styles.safe, style]}>
+    <SafeAreaView edges={edges} style={[styles.safe, { backgroundColor: colors.background }, style]}>
       {inner}
     </SafeAreaView>
   );
@@ -38,7 +39,6 @@ export function Screen({ children, style, edges = ['top', 'left', 'right'], cent
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   safeWeb: {
     ...(Platform.OS === 'web'

@@ -1,15 +1,17 @@
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ThemeStatusBar } from '../components/ThemeStatusBar';
 import { AuthProvider } from '../lib/auth';
 import { FontProvider } from '../lib/FontProvider';
+import { ThemeModeProvider } from '../lib/ThemeModeProvider';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <FontProvider>
       <AuthProvider>
-        <StatusBar style="dark" />
+        <ThemeModeProvider>
+        <ThemeStatusBar />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="login" />
@@ -22,6 +24,7 @@ export default function RootLayout() {
           <Stack.Screen name="dashboard" />
           <Stack.Screen name="care-log" />
         </Stack>
+        </ThemeModeProvider>
       </AuthProvider>
       </FontProvider>
     </SafeAreaProvider>

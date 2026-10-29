@@ -1,5 +1,7 @@
 import { Pressable, Text, StyleSheet, Platform, ViewStyle } from 'react-native';
-import { colors, radii } from '../lib/theme';
+import { useMemo } from 'react';
+import { useAppColors } from '../lib/ThemeModeProvider';
+import { radii, type AppColors } from '../lib/theme';
 import { fonts } from '../lib/typography';
 
 type Variant = 'rose' | 'blush' | 'mint' | 'magenta';
@@ -12,15 +14,19 @@ type Props = {
   layout?: 'tile' | 'solo';
 };
 
-const variantStyle: Record<Variant, { box: ViewStyle; text: { color: string } }> = {
-  magenta: { box: { backgroundColor: colors.pinkDeep }, text: { color: colors.white } },
-  rose: { box: { backgroundColor: colors.pinkStrong }, text: { color: colors.white } },
-  blush: { box: { backgroundColor: colors.pink }, text: { color: colors.text } },
-  mint: { box: { backgroundColor: colors.greenDark }, text: { color: colors.white } },
-};
+function variantStyle(colors: AppColors, variant: Variant): { box: ViewStyle; text: { color: string } } {
+  const map: Record<Variant, { box: ViewStyle; text: { color: string } }> = {
+    magenta: { box: { backgroundColor: colors.pinkDeep }, text: { color: colors.fabText } },
+    rose: { box: { backgroundColor: colors.pinkStrong }, text: { color: colors.fabText } },
+    blush: { box: { backgroundColor: colors.pink }, text: { color: colors.text } },
+    mint: { box: { backgroundColor: colors.greenDark }, text: { color: colors.fabText } },
+  };
+  return map[variant];
+}
 
 export function NavChip({ label, onPress, variant = 'blush', layout = 'tile' }: Props) {
-  const v = variantStyle[variant];
+  const colors = useAppColors();
+  const v = useMemo(() => variantStyle(colors, variant), [colors, variant]);
   return (
     <Pressable
       style={[

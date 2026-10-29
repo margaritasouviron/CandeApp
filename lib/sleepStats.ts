@@ -41,9 +41,10 @@ export async function fetchWeeklySleepStats(patientId: string): Promise<WeeklySl
     map.set(key, 0);
   }
 
+  const nowIso = new Date().toISOString();
   (data ?? []).forEach((row) => {
     const key = row.inicio.slice(0, 10);
-    const h = hoursBetween(row.inicio, row.fin);
+    const h = hoursBetween(row.inicio, row.fin ?? nowIso);
     map.set(key, (map.get(key) ?? 0) + h);
   });
 

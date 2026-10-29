@@ -6,10 +6,18 @@ type Props = {
   nombre: string;
   actual: number;
   minima: number;
+  consumoMensual?: number;
+  presentacion?: string | null;
   unidad: string;
 };
 
-export function StockBar({ nombre, actual, minima, unidad }: Props) {
+function formatQty(n: number) {
+  if (!Number.isFinite(n)) return '0';
+  const rounded = Math.round(n * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+export function StockBar({ nombre, actual, minima, consumoMensual = 0, presentacion, unidad }: Props) {
   const low = minima > 0 ? actual < minima : actual <= 0;
   const referencia = minima > 0 ? Math.max(minima * 2, actual, minima) : Math.max(actual, 1);
   const pct = Math.min(100, Math.max(0, (actual / referencia) * 100));
@@ -29,6 +37,19 @@ export function StockBar({ nombre, actual, minima, unidad }: Props) {
           <View style={[styles.threshold, { left: `${thresholdPct}%` }]} />
         ) : null}
       </View>
+      <View style={styles.metaRow}>
+        {consumoMensual > 0 ? (
+          <Text style={styles.meta}>
+            Consumo teórico/mes: {formatQty(consumoMensual)} {unidad}
+          </Text>
+        ) : null}
+        {minima > 0 ? (
+          <Text style={styles.meta}>
+            Reponer bajo: {formatQty(minima)} {unidad}
+          </Text>
+        ) : null}
+      </View>
+      {presentacion ? <Text style={styles.presentation}>{presentacion}</Text> : null}
       {low ? <Text style={styles.alert}>Stock bajo</Text> : null}
     </View>
   );
@@ -71,5 +92,8 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     opacity: 0.65,
   },
+  metaRow: { marginTop: 8, gap: 2 },
+  meta: { fontFamily: fonts.body, fontSize: 12, color: colors.textMuted, lineHeight: 16 },
+  presentation: { fontFamily: fonts.body, fontSize: 11, color: colors.textMuted, marginTop: 4, fontStyle: 'italic' },
   alert: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.error, marginTop: 8 },
 });

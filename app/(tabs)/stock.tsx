@@ -136,6 +136,8 @@ export default function StockScreen() {
                     nombre={item.nombre}
                     actual={Number(item.cantidad_actual)}
                     minima={Number(item.cantidad_minima)}
+                    consumoMensual={Number(item.consumo_mensual ?? 0)}
+                    presentacion={item.presentacion}
                     unidad={item.unidad}
                   />
                   {isOrganizador && editingId === item.id ? (

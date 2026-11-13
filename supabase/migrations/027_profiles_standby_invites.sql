@@ -1,6 +1,4 @@
--- Perfiles: rol standby, invitaciones, autor real del registro
-
-ALTER TYPE app_role ADD VALUE IF NOT EXISTS 'standby';
+-- Paso 2/2: invitaciones, realizado_por, políticas standby (después de 026).
 
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS email TEXT,
@@ -27,18 +25,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS profile_invites_email_active_idx
 
 ALTER TABLE profile_invites ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS profile_invites_select_org ON profile_invites;
 CREATE POLICY profile_invites_select_org ON profile_invites FOR SELECT TO authenticated
   USING (is_organizador());
 
+DROP POLICY IF EXISTS profile_invites_insert_org ON profile_invites;
 CREATE POLICY profile_invites_insert_org ON profile_invites FOR INSERT TO authenticated
   WITH CHECK (is_organizador());
 
+DROP POLICY IF EXISTS profile_invites_delete_org ON profile_invites;
 CREATE POLICY profile_invites_delete_org ON profile_invites FOR DELETE TO authenticated
   USING (is_organizador());
 
 CREATE OR REPLACE FUNCTION is_standby()
 RETURNS BOOLEAN AS $$
-  SELECT get_my_role() = 'standby';
+  SELECT get_my_role() = 'standby'::app_role;
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION can_register_email(p_email TEXT)
@@ -60,7 +61,7 @@ DECLARE
   v_perfil_completo BOOLEAN := true;
 BEGIN
   IF lower(NEW.email) = 'standby@gmail.com' THEN
-    v_role := 'standby';
+    v_role := 'standby'::app_role;
     v_nombre := COALESCE(NEW.raw_user_meta_data->>'nombre_completo', 'Tablet del cuarto');
     v_perfil_completo := true;
   ELSIF NOT EXISTS (

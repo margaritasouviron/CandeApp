@@ -11,6 +11,7 @@ export const EVENT_TYPES = [
   'paseo',
   'terapia',
   'cole',
+  'turno_medico',
   'signos_vitales',
   'higiene',
   'observacion',
@@ -34,6 +35,7 @@ export const REGISTRO_TIPOS = [
   'paseo',
   'terapia',
   'cole',
+  'turno_medico',
 ] as const;
 
 export type RegistroTipo = (typeof REGISTRO_TIPOS)[number];
@@ -45,8 +47,16 @@ export const SLEEP_EVENT_TYPE = 'sueno' as const;
 
 /** En calendario solo bloque sombreado, no pastilla sólida */
 export function isCalendarShadedOnlyLogType(tipo: string): boolean {
-  return tipo === SLEEP_EVENT_TYPE || tipo === 'comida' || isDurationEventType(tipo);
+  return (
+    tipo === SLEEP_EVENT_TYPE ||
+    tipo === 'comida' ||
+    tipo === 'turno_medico' ||
+    isDurationEventType(tipo)
+  );
 }
+
+/** Tipos al mantener pulsado un horario en el calendario */
+export const CALENDAR_LONG_PRESS_TIPOS: RegistroTipo[] = [...REGISTRO_TIPOS];
 
 export function isDurationEventType(tipo: string): boolean {
   return (DURATION_EVENT_TYPES as readonly string[]).includes(tipo);
@@ -79,6 +89,7 @@ export const EVENT_LABELS: Record<EventType, string> = {
   paseo: 'Paseo',
   terapia: 'Terapia',
   cole: 'Cole',
+  turno_medico: 'Turno médico',
   otro: 'Otro',
 };
 
@@ -100,6 +111,7 @@ export const EVENT_COLORS: Record<EventType, string> = {
   paseo: '#F97316',
   terapia: '#8B5CF6',
   cole: '#0EA5E9',
+  turno_medico: '#6366F1',
   otro: '#94A3B8',
 };
 
@@ -112,6 +124,7 @@ export const EVENT_SHADE_COLORS: Partial<Record<EventType, string>> = {
   paseo: 'rgba(249, 115, 22, 0.38)',
   terapia: 'rgba(139, 92, 246, 0.38)',
   cole: 'rgba(14, 165, 233, 0.38)',
+  turno_medico: 'rgba(99, 102, 241, 0.38)',
 };
 
 export const SCHEDULED_MUTED = 'rgba(56, 189, 248, 0.35)';

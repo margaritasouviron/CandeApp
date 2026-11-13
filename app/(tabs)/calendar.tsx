@@ -9,13 +9,15 @@ import {
   Platform,
   PanResponder,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useGlobalSearchParams, useRouter } from 'expo-router';
 import { CalendarGrid } from '../../components/CalendarGrid';
+import { CalendarAddEventModal } from '../../components/CalendarAddEventModal';
 import { DayTimeGrid } from '../../components/DayTimeGrid';
 import { FloatingActionButton } from '../../components/FloatingActionButton';
 import { NavArrowButton } from '../../components/NavArrowButton';
 import { TabHeader } from '../../components/TabHeader';
 import { UpcomingDoseCard } from '../../components/UpcomingDoseCard';
+import { UpcomingTurnoCard } from '../../components/UpcomingTurnoCard';
 import { useAuth } from '../../lib/auth';
 import {
   addDays,
@@ -23,17 +25,25 @@ import {
   fetchDayJournal,
   fetchMonthEventDays,
   fetchDurationBlocksForDay,
+  mergeDurationBlocksForDay,
   fetchWeekJournalTitles,
   type DurationBlock,
   type JournalLogItem,
 } from '../../lib/careEvents';
-import { EVENT_LABELS, EVENT_TYPES } from '../../lib/eventTypes';
+import { EVENT_LABELS, EVENT_TYPES, type RegistroTipo } from '../../lib/eventTypes';
 import { fetchUpcomingDoses, registroParamsFromDose, type UpcomingDose } from '../../lib/medicationSchedules';
+import {
+  fetchUpcomingMedicalTurnos,
+  mergeCalendarUpcoming,
+  type CalendarUpcomingItem,
+} from '../../lib/medicalAppointments';
 import { getPatient } from '../../lib/patientContext';
 import { removeDoseAndFollowingFromList } from '../../lib/upcomingDoseActions';
 import { Screen } from '../../lib/screen';
 import { colors } from '../../lib/theme';
 import { fonts } from '../../lib/typography';
+import { consumeCalendarFeedback } from '../../lib/calendarFeedback';
+import { firstSearchParam } from '../../lib/routeParams';
 
 type ViewMode = 'day' | 'week' | 'month';
 
@@ -49,7 +59,14 @@ function formatDayShort(dateStr: string) {
 export default function CalendarScreen() {
   const router = useRouter();
   const { role } = useAuth();
-  const { saved, message } = useLocalSearchParams<{ saved?: string; message?: string }>();
+  const rawParams = useGlobalSearchParams<{
+    saved?: string | string[];
+    message?: string | string[];
+    date?: string | string[];
+  }>();
+  const saved = firstSearchParam(rawParams.saved);
+  const message = firstSearchParam(rawParams.message);
+  const returnDate = firstSearchParam(rawParams.date);
   const todayKey = dateKey(new Date());
 
   const [mode, setMode] = useState<ViewMode>('day');
@@ -61,12 +78,14 @@ export default function CalendarScreen() {
   const [durationBlocks, setDurationBlocks] = useState<DurationBlock[]>([]);
   const [weekData, setWeekData] = useState<{ days: string[]; byDay: Map<string, JournalLogItem[]> } | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingDose[]>([]);
+  const [upcomingTurnos, setUpcomingTurnos] = useState<CalendarUpcomingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [addEventSlot, setAddEventSlot] = useState<string | null>(null);
 
   const isOrganizador = role === 'organizador';
   const isToday = selectedDate === todayKey;
-  const nextTen = upcoming.slice(0, 10);
+  const nextTen = upcomingTurnos;
 
   const calendarTitle =
     mode === 'month'
@@ -93,12 +112,14 @@ export default function CalendarScreen() {
       const patient = await getPatient();
       if (!patient) return;
 
-      const [monthMap, upcomingList] = await Promise.all([
+      const [monthMap, upcomingList, turnoList] = await Promise.all([
         fetchMonthEventDays(patient.id, year, month),
         fetchUpcomingDoses(patient.id, 120),
+        fetchUpcomingMedicalTurnos(patient.id, 120).catch(() => []),
       ]);
       setEventDays(monthMap);
       setUpcoming(upcomingList);
+      setUpcomingTurnos(mergeCalendarUpcoming(upcomingList, turnoList, 10));
 
       if (mode === 'day') {
         const [logs, durations] = await Promise.all([
@@ -106,7 +127,7 @@ export default function CalendarScreen() {
           fetchDurationBlocksForDay(patient.id, selectedDate),
         ]);
         setDayLogs(logs);
-        setDurationBlocks(durations);
+        setDurationBlocks(mergeDurationBlocksForDay(durations, logs));
       } else if (mode === 'week') {
         setWeekData(await fetchWeekJournalTitles(patient.id, selectedDate));
       }
@@ -119,17 +140,52 @@ export default function CalendarScreen() {
     load();
   }, [load]);
 
+  const applyFeedbackDate = useCallback((dateStr: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    setSelectedDate(dateStr);
+    const [y, mo] = dateStr.split('-').map(Number);
+    setYear(y);
+    setMonth(mo - 1);
+    setMode('day');
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const fb = consumeCalendarFeedback();
+      if (fb) {
+        setToast(fb.message);
+        if (fb.date) applyFeedbackDate(fb.date);
+      } else if (saved === '1' && message) {
+        setToast(message);
+        if (returnDate) applyFeedbackDate(returnDate);
+      }
+    }, [saved, message, returnDate, applyFeedbackDate])
+  );
+
   useEffect(() => {
-    if (saved === '1' && message) {
-      setToast(message);
-      const timer = setTimeout(() => setToast(null), 5000);
-      router.setParams({ saved: undefined, message: undefined });
-      return () => clearTimeout(timer);
+    if (returnDate && /^\d{4}-\d{2}-\d{2}$/.test(returnDate)) {
+      applyFeedbackDate(returnDate);
     }
-  }, [saved, message, router]);
+  }, [returnDate, applyFeedbackDate]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const confirmDose = (dose: UpcomingDose) => {
     router.push({ pathname: '/registro', params: registroParamsFromDose(dose) });
+  };
+
+  const openRegistroFromSlot = (tipo: RegistroTipo) => {
+    const hora = addEventSlot;
+    setAddEventSlot(null);
+    if (!hora) return;
+    router.push({
+      pathname: '/registro',
+      params: { date: selectedDate, hora, tipo },
+    });
   };
 
   return (
@@ -186,6 +242,7 @@ export default function CalendarScreen() {
                   durationBlocks={durationBlocks}
                   scheduled={upcoming}
                   onLogPress={(logId) => router.push(`/log/${logId}`)}
+                  onSlotLongPress={(timeHm) => setAddEventSlot(timeHm)}
                 />
               </ScrollView>
             )}
@@ -250,23 +307,60 @@ export default function CalendarScreen() {
             {nextTen.length === 0 ? (
               <Text style={styles.emptyInline}>Sin eventos programados</Text>
             ) : (
-              nextTen.map((dose) => (
-                <UpcomingDoseCard
-                  key={dose.id}
-                  dose={dose}
-                  muted
-                  showConfirm
-                  onConfirm={() => confirmDose(dose)}
-                  showDelete={isOrganizador}
-                  onDeleted={() => setUpcoming((prev) => removeDoseAndFollowingFromList(prev, dose))}
-                />
-              ))
+              nextTen.map((item) =>
+                item.kind === 'dose' ? (
+                  <UpcomingDoseCard
+                    key={`dose-${item.dose.id}`}
+                    dose={item.dose}
+                    muted
+                    showConfirm
+                    onConfirm={() => confirmDose(item.dose)}
+                    showDelete={isOrganizador}
+                    onDeleted={() => {
+                      const nextDoses = removeDoseAndFollowingFromList(upcoming, item.dose);
+                      setUpcoming(nextDoses);
+                      setUpcomingTurnos((prev) =>
+                        mergeCalendarUpcoming(
+                          nextDoses,
+                          prev.filter((p) => p.kind === 'turno').map((p) => p.turno),
+                          10
+                        )
+                      );
+                    }}
+                  />
+                ) : (
+                  <UpcomingTurnoCard
+                    key={`turno-${item.turno.careLogId}`}
+                    turno={item.turno}
+                    muted
+                    onPress={() => {
+                      const day = dateKey(new Date(item.turno.inicio));
+                      setSelectedDate(day);
+                      const [y, mo] = day.split('-').map(Number);
+                      setYear(y);
+                      setMonth(mo - 1);
+                      setMode('day');
+                      router.push({
+                        pathname: '/log/[id]',
+                        params: { id: item.turno.careLogId },
+                      });
+                    }}
+                  />
+                )
+              )
             )}
           </ScrollView>
         </View>
         </View>
 
         <FloatingActionButton label="Registro" onPress={() => router.push('/registro')} bottomOffset={56} />
+
+        <CalendarAddEventModal
+          visible={addEventSlot != null}
+          timeLabel={addEventSlot ? `${addEventSlot} · ${formatDayShort(selectedDate)}` : ''}
+          onClose={() => setAddEventSlot(null)}
+          onPick={openRegistroFromSlot}
+        />
       </View>
     </Screen>
   );

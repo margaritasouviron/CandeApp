@@ -74,6 +74,8 @@ export default function CareLogDetailScreen() {
   const [text, setText] = useState('');
   const [sleepStart, setSleepStart] = useState('');
   const [sleepEnd, setSleepEnd] = useState('');
+  const [turnoMedico, setTurnoMedico] = useState('');
+  const [turnoDireccion, setTurnoDireccion] = useState('');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -86,13 +88,27 @@ export default function CareLogDetailScreen() {
         setDate(d);
         setTime(t);
         setText(row.editableText);
-        if (row.sleepInicio) setSleepStart(hmFromIso(row.sleepInicio));
-        if (row.sleepFin) setSleepEnd(hmFromIso(row.sleepFin));
-        if (row.mealInicio) setSleepStart(hmFromIso(row.mealInicio));
-        if (row.mealFin) setSleepEnd(hmFromIso(row.mealFin));
+        setTurnoMedico(row.turnoMedico ?? row.title ?? '');
+        setTurnoDireccion(row.turnoDireccion ?? '');
+        if (row.tipo === 'turno_medico' && row.turnoInicio) {
+          const { date: d, time: t } = parseDateTimeLocal(row.turnoInicio);
+          setDate(d);
+          setTime(t);
+          setSleepStart(hmFromIso(row.turnoInicio));
+          if (row.turnoFin) setSleepEnd(hmFromIso(row.turnoFin));
+        } else {
+          if (row.sleepInicio) setSleepStart(hmFromIso(row.sleepInicio));
+          if (row.sleepFin) setSleepEnd(hmFromIso(row.sleepFin));
+          if (row.mealInicio) setSleepStart(hmFromIso(row.mealInicio));
+          if (row.mealFin) setSleepEnd(hmFromIso(row.mealFin));
+        }
       }
-    } catch {
-      setErrorMsg('No se pudo cargar el registro');
+    } catch (e) {
+      setErrorMsg(
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: unknown }).message)
+          : 'No se pudo cargar el registro'
+      );
     } finally {
       setLoading(false);
     }
@@ -166,13 +182,17 @@ export default function CareLogDetailScreen() {
         date,
         time,
         text,
+        turnoMedico: detail.tipo === 'turno_medico' ? turnoMedico : undefined,
+        turnoDireccion: detail.tipo === 'turno_medico' ? turnoDireccion : undefined,
         sleepStart:
+          detail.tipo === 'turno_medico' ||
           detail.tipo === 'sueno' ||
           isDurationEventType(detail.tipo) ||
           (detail.tipo === 'comida' && !!detail.mealInicio)
             ? sleepStart
             : undefined,
         sleepEnd:
+          detail.tipo === 'turno_medico' ||
           detail.tipo === 'sueno' ||
           isDurationEventType(detail.tipo) ||
           (detail.tipo === 'comida' && !!detail.mealInicio)
@@ -185,8 +205,12 @@ export default function CareLogDetailScreen() {
         pathname: '/(tabs)/calendar',
         params: { saved: '1', message: 'Registro actualizado' },
       });
-    } catch {
-      setErrorMsg('No se pudo guardar. ¿Aplicaste la migración 013 en Supabase?');
+    } catch (e) {
+      const msg =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: unknown }).message)
+          : 'No se pudo guardar. ¿Aplicaste la migración 013 en Supabase?';
+      setErrorMsg(msg);
     } finally {
       setSaving(false);
     }
@@ -220,7 +244,14 @@ export default function CareLogDetailScreen() {
         {loading ? (
           <ActivityIndicator color={colors.pinkDeep} style={{ marginTop: 24 }} />
         ) : !detail ? (
-          <Text style={styles.error}>No existe este registro</Text>
+          <>
+            <Text style={styles.error}>
+              {errorMsg ?? 'No existe este registro o no se pudo cargar desde Supabase.'}
+            </Text>
+            <Text style={styles.hint}>
+              Turnos: 030 + 031. Si ves error de meal_entries.inicio, ejecutá también 025. ID: {id}
+            </Text>
+          </>
         ) : (
           <>
             <View style={styles.titleRow}>
@@ -249,14 +280,32 @@ export default function CareLogDetailScreen() {
             <Text style={styles.metaLabel}>Registrado por</Text>
             <Text style={styles.metaValue}>{detail.authorName}</Text>
 
-            <Text style={styles.metaLabel}>Fecha y hora</Text>
-            {editing ? (
-              <View style={styles.row}>
-                <TextInput style={[styles.input, styles.inputHalf]} value={date} onChangeText={setDate} placeholder="AAAA-MM-DD" />
-                <TextInput style={[styles.input, styles.inputHalf]} value={time} onChangeText={setTime} placeholder="HH:MM" />
-              </View>
+            {detail.tipo !== 'turno_medico' ? (
+              <>
+                <Text style={styles.metaLabel}>Fecha y hora</Text>
+                {editing ? (
+                  <View style={styles.row}>
+                    <TextInput
+                      style={[styles.input, styles.inputHalf]}
+                      value={date}
+                      onChangeText={setDate}
+                      placeholder="AAAA-MM-DD"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.inputHalf]}
+                      value={time}
+                      onChangeText={setTime}
+                      placeholder="HH:MM"
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.metaValue}>{formatDisplay(detail.registrado_en)}</Text>
+                )}
+              </>
             ) : (
-              <Text style={styles.metaValue}>{formatDisplay(detail.registrado_en)}</Text>
+              <Text style={styles.metaValue}>
+                Registrado: {formatDisplay(detail.registrado_en)}
+              </Text>
             )}
 
             {detail.tipo === 'medicacion' && (
@@ -324,6 +373,34 @@ export default function CareLogDetailScreen() {
               </>
             ) : null}
 
+            {detail.tipo === 'turno_medico' ? (
+              <>
+                {editing ? (
+                  <>
+                    <Text style={styles.metaLabel}>Fecha del turno</Text>
+                    <TextInput style={styles.input} value={date} onChangeText={setDate} placeholder="AAAA-MM-DD" />
+                    <Text style={styles.metaLabel}>Nombre del médico</Text>
+                    <TextInput style={styles.input} value={turnoMedico} onChangeText={setTurnoMedico} />
+                    <Text style={styles.metaLabel}>Dirección</Text>
+                    <TextInput style={styles.input} value={turnoDireccion} onChangeText={setTurnoDireccion} />
+                    <Text style={styles.metaLabel}>Desde</Text>
+                    <TextInput style={styles.input} value={sleepStart} onChangeText={setSleepStart} placeholder="HH:MM" />
+                    <Text style={styles.metaLabel}>Hasta</Text>
+                    <TextInput style={styles.input} value={sleepEnd} onChangeText={setSleepEnd} placeholder="HH:MM" />
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.metaLabel}>Médico</Text>
+                    <Text style={styles.metaValue}>{detail.turnoMedico ?? detail.title}</Text>
+                    <Text style={styles.metaLabel}>Dirección</Text>
+                    <Text style={styles.bodyText}>{detail.turnoDireccion ?? '—'}</Text>
+                    <Text style={styles.metaLabel}>Horario del turno</Text>
+                    <Text style={styles.bodyText}>{detail.detail}</Text>
+                  </>
+                )}
+              </>
+            ) : null}
+
             {detail.tipo === 'sueno' && (
               <>
                 <Text style={styles.metaLabel}>Horario de sueño</Text>
@@ -372,7 +449,14 @@ export default function CareLogDetailScreen() {
             {canEdit && (
               editing ? (
                 <View style={styles.actions}>
-                  <Pressable style={styles.btnSecondary} onPress={() => setEditing(false)} disabled={saving}>
+                  <Pressable
+                    style={styles.btnSecondary}
+                    onPress={() => {
+                      setEditing(false);
+                      void load();
+                    }}
+                    disabled={saving}
+                  >
                     <Text style={styles.btnSecondaryText}>Cancelar</Text>
                   </Pressable>
                   <Pressable style={styles.btnPrimary} onPress={handleSave} disabled={saving}>

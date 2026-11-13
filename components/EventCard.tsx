@@ -10,6 +10,7 @@ type Props = {
   time: string;
   title: string;
   subtitle?: string;
+  authorName?: string;
   /** Sin caja — solo texto y punto de color */
   plain?: boolean;
 };
@@ -41,7 +42,7 @@ function createStyles(colors: AppColors) {
   });
 }
 
-export function EventCard({ tipo, time, title, subtitle, plain }: Props) {
+export function EventCard({ tipo, time, title, subtitle, authorName, plain }: Props) {
   const colors = useAppColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const color = EVENT_COLORS[tipo as EventType] ?? colors.textMuted;
@@ -52,6 +53,7 @@ export function EventCard({ tipo, time, title, subtitle, plain }: Props) {
         <Text style={styles.time}>{time}</Text>
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.sub}>{subtitle}</Text> : null}
+        {authorName ? <Text style={styles.sub}>Por {authorName}</Text> : null}
         <Text style={[styles.badge, { color }]}>{EVENT_LABELS[tipo as EventType] ?? tipo}</Text>
       </View>
     </View>

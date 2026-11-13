@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { CLASIFICACION_LABELS, inventoryStockStatus, type InventoryClasificacion } from '../lib/inventory';
 import { colors } from '../lib/theme';
 import { fonts } from '../lib/typography';
 
@@ -9,6 +10,8 @@ type Props = {
   consumoMensual?: number;
   presentacion?: string | null;
   unidad: string;
+  clasificacion?: InventoryClasificacion;
+  adquisicionLabel?: string | null;
 };
 
 function formatQty(n: number) {
@@ -17,14 +20,26 @@ function formatQty(n: number) {
   return Number.isInteger(rounded) ? String(rounded) : String(rounded);
 }
 
-export function StockBar({ nombre, actual, minima, consumoMensual = 0, presentacion, unidad }: Props) {
-  const low = minima > 0 ? actual < minima : actual <= 0;
+export function StockBar({
+  nombre,
+  actual,
+  minima,
+  consumoMensual = 0,
+  presentacion,
+  unidad,
+  clasificacion = 'insumo',
+  adquisicionLabel,
+}: Props) {
+  const status = inventoryStockStatus({ cantidad_actual: actual, cantidad_minima: minima });
+  const low = status === 'low';
+  const near = status === 'near';
+  const clasificacionLabel = CLASIFICACION_LABELS[clasificacion];
   const referencia = minima > 0 ? Math.max(minima * 2, actual, minima) : Math.max(actual, 1);
   const pct = Math.min(100, Math.max(0, (actual / referencia) * 100));
   const thresholdPct = minima > 0 ? Math.min(100, (minima / referencia) * 100) : null;
 
   return (
-    <View style={[styles.card, low && styles.cardLow]}>
+    <View style={[styles.card, low && styles.cardLow, near && !low && styles.cardNear]}>
       <View style={styles.header}>
         <Text style={styles.name}>{nombre}</Text>
         <Text style={[styles.qty, low && styles.qtyLow]}>
@@ -37,6 +52,11 @@ export function StockBar({ nombre, actual, minima, consumoMensual = 0, presentac
           <View style={[styles.threshold, { left: `${thresholdPct}%` }]} />
         ) : null}
       </View>
+      {(clasificacionLabel || adquisicionLabel) && (
+        <Text style={styles.tags}>
+          {[clasificacionLabel, adquisicionLabel].filter(Boolean).join(' · ')}
+        </Text>
+      )}
       <View style={styles.metaRow}>
         {consumoMensual > 0 ? (
           <Text style={styles.meta}>
@@ -51,6 +71,7 @@ export function StockBar({ nombre, actual, minima, consumoMensual = 0, presentac
       </View>
       {presentacion ? <Text style={styles.presentation}>{presentacion}</Text> : null}
       {low ? <Text style={styles.alert}>Stock bajo</Text> : null}
+      {near ? <Text style={styles.alertNear}>Cerca de agotarse</Text> : null}
     </View>
   );
 }
@@ -67,6 +88,10 @@ const styles = StyleSheet.create({
   cardLow: {
     borderColor: colors.error,
     backgroundColor: '#FFF5F5',
+  },
+  cardNear: {
+    borderColor: colors.pinkStrong,
+    backgroundColor: colors.brownLight,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   name: { fontFamily: fonts.bodySemi, fontSize: 16, color: colors.text, flex: 1, paddingRight: 8 },
@@ -92,8 +117,10 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     opacity: 0.65,
   },
+  tags: { fontFamily: fonts.bodySemi, fontSize: 11, color: colors.pinkDeep, marginTop: 6 },
   metaRow: { marginTop: 8, gap: 2 },
   meta: { fontFamily: fonts.body, fontSize: 12, color: colors.textMuted, lineHeight: 16 },
   presentation: { fontFamily: fonts.body, fontSize: 11, color: colors.textMuted, marginTop: 4, fontStyle: 'italic' },
   alert: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.error, marginTop: 8 },
+  alertNear: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.pinkDeep, marginTop: 8 },
 });

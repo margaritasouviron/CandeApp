@@ -62,7 +62,8 @@ WHERE NOT EXISTS (
 -- ─── 6. Crear enfermeras (DESPUÉS de la administradora) ───
 -- Desde la app: Settings → Perfiles → Agregar perfil (correo + nombre).
 -- La persona entra en «Crear cuenta» con ese correo y elige su contraseña.
--- (Alternativa: Authentication → Add user; hace falta invitación en profile_invites tras migración 026.)
+-- Migraciones de perfiles: ejecutá 026 (solo enum) y después 027 en el SQL Editor.
+-- (Alternativa: Authentication → Add user; hace falta invitación en profile_invites tras 027.)
 
 -- ─── 7. Desactivar registro público (recomendado) ───
 -- Authentication → Providers → Email → desactivar "Enable sign ups"

@@ -53,10 +53,14 @@ import {
   saveCareLogWithStockConsumption,
   type StockConsumptionEventType,
 } from '../lib/stockConsumptionEvents';
+import { getPatient } from '../lib/patientContext';
 import { Screen } from '../lib/screen';
 import { supabase } from '../lib/supabase';
 import { BackButton } from '../components/BackButton';
+import { returnToCalendarAfterSave } from '../lib/calendarNavigation';
+import { saveMedicalTurno } from '../lib/medicalAppointments';
 import { resolveCareLogAuthorship } from '../lib/careLogAuthorship';
+import { firstSearchParam } from '../lib/routeParams';
 import { fetchCaregiverProfiles, type AppProfile } from '../lib/profiles';
 import { useThemeMode } from '../lib/ThemeModeProvider';
 import { colors } from '../lib/theme';
@@ -138,7 +142,14 @@ export default function RegistroScreen() {
     sleepShortcut?: string;
   }>();
 
-  const isConfirmMode = paramConfirm === '1' && !!paramPrescriptionId;
+  const eventDate = firstSearchParam(paramDate);
+  const eventTipo = firstSearchParam(paramTipo);
+  const eventHora = firstSearchParam(paramHora);
+  const eventConfirm = firstSearchParam(paramConfirm);
+  const eventPrescriptionId = firstSearchParam(paramPrescriptionId);
+  const eventSleepShortcut = firstSearchParam(paramSleepShortcut);
+
+  const isConfirmMode = eventConfirm === '1' && !!eventPrescriptionId;
 
   const [tipo, setTipo] = useState<RegistroTipo>('comida');
   const [hora, setHora] = useState(() => {
@@ -150,10 +161,13 @@ export default function RegistroScreen() {
   const [comidaVelocidad, setComidaVelocidad] = useState('');
   const [rangeStart, setRangeStart] = useState('09:00');
   const [rangeEnd, setRangeEnd] = useState('10:00');
+  const [turnoMedico, setTurnoMedico] = useState('');
+  const [turnoDireccion, setTurnoDireccion] = useState('');
   const [terapiaTipo, setTerapiaTipo] = useState<string>('musicoterapia');
   const [terapiaOtra, setTerapiaOtra] = useState('');
   const [terapiaCustomOpen, setTerapiaCustomOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
@@ -218,7 +232,7 @@ export default function RegistroScreen() {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
   }, [isNewMed, newMedIntervalo, editIntervalo]);
 
-  const proximaDosis = useMemo(() => addHours(parseTimeOnDate(paramDate, hora), intervaloHoras), [paramDate, hora, intervaloHoras]);
+  const proximaDosis = useMemo(() => addHours(parseTimeOnDate(eventDate, hora), intervaloHoras), [eventDate, hora, intervaloHoras]);
 
   const loadPrescriptions = useCallback(async (pid: string) => {
     const { data } = await supabase
@@ -263,10 +277,29 @@ export default function RegistroScreen() {
   }, [session, role, loadPrescriptions, loadActiveSleep, loadActiveMeal]);
 
   useEffect(() => {
-    if (paramTipo === SLEEP_EVENT_TYPE || paramSleepShortcut === '1') {
+    if (eventTipo === SLEEP_EVENT_TYPE || eventSleepShortcut === '1') {
       setTipo(SLEEP_EVENT_TYPE);
+    } else if (
+      eventTipo &&
+      eventTipo !== 'medicacion' &&
+      (REGISTRO_TIPOS as readonly string[]).includes(eventTipo)
+    ) {
+      setTipo(eventTipo as RegistroTipo);
     }
-  }, [paramTipo, paramSleepShortcut]);
+  }, [eventTipo, eventSleepShortcut]);
+
+  useEffect(() => {
+    if (!eventHora || eventConfirm === '1') return;
+    if (eventTipo && eventTipo !== 'medicacion') {
+      setHora(eventHora);
+      setRangeStart(eventHora);
+      const inicio = parseTimeOnDate(eventDate, eventHora);
+      const fin = addHours(inicio, 1);
+      setRangeEnd(
+        `${String(fin.getHours()).padStart(2, '0')}:${String(fin.getMinutes()).padStart(2, '0')}`
+      );
+    }
+  }, [eventHora, eventDate, eventTipo, eventConfirm]);
 
   const applyMedicationDoseContext = useCallback(
     async (nombre: string, invItem?: InventoryItem | null) => {
@@ -396,8 +429,8 @@ export default function RegistroScreen() {
     subtipo?: string | null
   ) => {
     const authorship = careAuthorship();
-    const inicio = parseTimeOnDate(paramDate, startHm);
-    let fin = parseTimeOnDate(paramDate, endHm);
+    const inicio = parseTimeOnDate(eventDate, startHm);
+    let fin = parseTimeOnDate(eventDate, endHm);
     if (fin.getTime() <= inicio.getTime()) {
       fin = new Date(fin.getTime() + 24 * 60 * 60 * 1000);
     }
@@ -541,7 +574,7 @@ export default function RegistroScreen() {
       }
     }
 
-    const administradoEn = parseTimeOnDate(paramDate, hora);
+    const administradoEn = parseTimeOnDate(eventDate, hora);
     const proxima = addHours(administradoEn, intervaloHoras);
     const authorship = careAuthorship();
 
@@ -592,15 +625,23 @@ export default function RegistroScreen() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
-      const { data: patient } = await supabase.from('patient').select('id').limit(1).maybeSingle();
-      if (!patient) {
-        Alert.alert('Error', 'No hay paciente configurado');
+      if (isStandby && !selectedCaregiverId) {
+        setSaveError('Elegí quién está completando este registro');
+        if (Platform.OS !== 'web') Alert.alert('Registro', 'Elegí quién está completando este registro');
+        return;
+      }
+
+      const patient = await getPatient();
+      if (!patient?.id) {
+        setSaveError('No hay paciente configurado');
+        if (Platform.OS !== 'web') Alert.alert('Error', 'No hay paciente configurado');
         return;
       }
 
       if (tipo === SLEEP_EVENT_TYPE) {
-        const when = parseTimeOnDate(paramDate, hora);
+        const when = parseTimeOnDate(eventDate, hora);
         const authorship = careAuthorship();
         if (activeSleep) {
           await endSleepSession(activeSleep.careLogId, when, activeSleep.inicio);
@@ -613,6 +654,38 @@ export default function RegistroScreen() {
         await refreshTheme();
       } else if (tipo === 'medicacion') {
         await saveMedication(patient.id);
+      } else if (tipo === 'turno_medico') {
+        if (!turnoMedico.trim()) {
+          setSaveError('Indica el nombre del médico');
+          if (Platform.OS !== 'web') Alert.alert('Error', 'Indica el nombre del médico');
+          return;
+        }
+        if (!turnoDireccion.trim()) {
+          setSaveError('Indica la dirección del turno');
+          if (Platform.OS !== 'web') Alert.alert('Error', 'Indica la dirección del turno');
+          return;
+        }
+        const inicio = parseTimeOnDate(eventDate, rangeStart);
+        let fin = parseTimeOnDate(eventDate, rangeEnd);
+        if (fin.getTime() <= inicio.getTime()) {
+          fin = new Date(fin.getTime() + 24 * 60 * 60 * 1000);
+        }
+        const authorship = careAuthorship();
+        await saveMedicalTurno({
+          patientId: patient.id,
+          userId: session!.user.id,
+          realizadoPor: authorship.realizado_por,
+          inicio,
+          fin,
+          nombreMedico: turnoMedico,
+          direccion: turnoDireccion,
+        });
+        returnToCalendarAfterSave(
+          router,
+          `Evento agregado: turno con ${turnoMedico.trim()} (${rangeStart} – ${rangeEnd})`,
+          eventDate
+        );
+        return;
       } else if (isDurationEventType(tipo)) {
         let subtipo: string | null = null;
         if (tipo === 'terapia') {
@@ -628,7 +701,7 @@ export default function RegistroScreen() {
         }
         await saveDurationLog(patient.id, tipo, rangeStart, rangeEnd, subtipo);
       } else if (tipo === 'comida') {
-        const when = parseTimeOnDate(paramDate, hora);
+        const when = parseTimeOnDate(eventDate, hora);
         const authorship = careAuthorship();
         if (activeMeal) {
           await endMealSession(activeMeal.careLogId, when, activeMeal.inicio);
@@ -675,12 +748,16 @@ export default function RegistroScreen() {
           tipo,
           registradoPor: authorship.registrado_por,
           realizadoPor: authorship.realizado_por,
-          registradoEn: parseTimeOnDate(paramDate, hora),
+          registradoEn: parseTimeOnDate(eventDate, hora),
           lines,
         });
       }
 
-      await refreshMedicationAlerts();
+      try {
+        await refreshMedicationAlerts();
+      } catch {
+        /* no impide volver al calendario */
+      }
 
       const successMessage =
         tipo === SLEEP_EVENT_TYPE
@@ -690,8 +767,8 @@ export default function RegistroScreen() {
           : tipo === 'medicacion'
             ? `Medicación registrada. Próxima dosis: ${formatDateTime(proximaDosis.toISOString())}`
             : isDurationEventType(tipo)
-              ? `${EVENT_LABELS[tipo]} registrado (${rangeStart} – ${rangeEnd})`
-              : tipo === 'comida'
+                ? `${EVENT_LABELS[tipo]} registrado (${rangeStart} – ${rangeEnd})`
+                : tipo === 'comida'
                 ? activeMeal
                   ? `Botón desconectado (${hora})`
                   : `Botón conectado: ${comidaFormato === 'sopa' ? 'sopa' : 'jugo'}, ${comidaMl} ml`
@@ -699,12 +776,25 @@ export default function RegistroScreen() {
                   ? `${EVENT_LABELS[tipo]} registrada. Stock actualizado.`
                   : 'Evento agregado correctamente';
 
-      router.replace({
-        pathname: '/(tabs)/calendar',
-        params: { saved: '1', message: successMessage },
-      });
+      returnToCalendarAfterSave(router, successMessage, eventDate);
     } catch (e) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : '';
+      const friendly =
+        msg.includes('Cande ya figura')
+          ? msg
+          : msg.includes('botón ya está conectado')
+            ? msg
+            : msg.includes('completando este registro')
+              ? msg
+              : /row-level security|rx_insert|42501/i.test(msg)
+                ? 'No se pudo guardar (permisos). Revisá tu rol en Supabase.'
+                : /medical_appointments|turno_medico/i.test(msg)
+                  ? 'Falta aplicar supabase/migrations/030_turno_medico_enum.sql y 031_medical_appointments.sql en Supabase.'
+                  : /proteina|limpieza_boton|cambio_panal|gotitas|inventory_consumption|enum|42703|22P02/i.test(msg)
+                    ? 'Falta una migración en Supabase o el tipo de evento no existe en la base.'
+                    : msg.trim() || 'No se pudo guardar el registro';
+      setSaveError(friendly);
+
       if (msg.includes('Cande ya figura')) {
         Alert.alert('Sueño', msg);
       } else if (msg.includes('botón ya está conectado')) {
@@ -716,6 +806,11 @@ export default function RegistroScreen() {
           'Error',
           'No se pudo guardar la dosis habitual. Ejecutá supabase/migrations/023_medication_habitual_dose_rls.sql en Supabase.'
         );
+      } else if (/medical_appointments|turno_medico/i.test(msg)) {
+        Alert.alert(
+          'Error',
+          'Falta aplicar supabase/migrations/030_turno_medico_enum.sql y 031_medical_appointments.sql en Supabase.'
+        );
       } else if (/proteina|limpieza_boton|cambio_panal|gotitas|inventory_consumption|enum|42703/i.test(msg)) {
         Alert.alert(
           'Error',
@@ -723,8 +818,8 @@ export default function RegistroScreen() {
         );
       } else if (msg.includes('Indica al menos un insumo')) {
         Alert.alert('Error', msg);
-      } else {
-        Alert.alert('Error', 'No se pudo guardar el registro');
+      } else if (Platform.OS !== 'web') {
+        Alert.alert('Error', friendly);
       }
     } finally {
       setSaving(false);
@@ -738,7 +833,13 @@ export default function RegistroScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <BackButton />
         <Text style={styles.title}>{isConfirmMode ? 'Confirmar medicación' : 'Registro'}</Text>
-        {paramDate ? <Text style={styles.sub}>Fecha: {paramDate}</Text> : null}
+        {eventDate ? <Text style={styles.sub}>Fecha: {eventDate}</Text> : null}
+
+        {saveError ? (
+          <View style={styles.saveErrorBox}>
+            <Text style={styles.saveErrorText}>{saveError}</Text>
+          </View>
+        ) : null}
 
         {isConfirmMode && selectedPrescription && (
           <View style={styles.confirmBanner}>
@@ -1057,6 +1158,42 @@ export default function RegistroScreen() {
               placeholderTextColor={colors.textMuted}
             />
           </>
+        ) : tipo === 'turno_medico' ? (
+          <>
+            <Text style={styles.label}>Nombre del médico</Text>
+            <TextInput
+              style={styles.input}
+              value={turnoMedico}
+              onChangeText={setTurnoMedico}
+              placeholder="Ej. Dr. García"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.label}>Dirección</Text>
+            <TextInput
+              style={styles.input}
+              value={turnoDireccion}
+              onChangeText={setTurnoDireccion}
+              placeholder="Consultorio, hospital, etc."
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.label}>Desde</Text>
+            <TextInput
+              style={styles.input}
+              value={rangeStart}
+              onChangeText={setRangeStart}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.label}>Hasta</Text>
+            <TextInput
+              style={styles.input}
+              value={rangeEnd}
+              onChangeText={setRangeEnd}
+              placeholder="HH:MM"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.hint}>Si termina al día siguiente, se calcula automáticamente.</Text>
+          </>
         ) : isDurationEventType(tipo) ? (
           <>
             {tipo === 'terapia' && (
@@ -1293,6 +1430,20 @@ const styles = StyleSheet.create({
   nextDoseLabel: { fontSize: 13, color: colors.brown, fontWeight: '600' },
   nextDoseValue: { fontSize: 18, fontWeight: '700', color: colors.blueDark, marginTop: 4 },
   nextDoseHint: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  saveErrorBox: {
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.error,
+    backgroundColor: colors.brownLight,
+  },
+  saveErrorText: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 14,
+    color: colors.error,
+    lineHeight: 20,
+  },
   confirmBanner: {
     backgroundColor: colors.brownLight,
     borderRadius: 12,

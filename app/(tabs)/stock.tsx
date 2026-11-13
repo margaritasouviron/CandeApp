@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -15,24 +15,39 @@ import { StockBar } from '../../components/StockBar';
 import { TabHeader } from '../../components/TabHeader';
 import { FloatingActionButton } from '../../components/FloatingActionButton';
 import { useAuth } from '../../lib/auth';
-import { fetchInventory, updateInventoryStock, type InventoryItem } from '../../lib/inventory';
+import {
+  filterInventoryItems,
+  fetchInventory,
+  inventoryStockStatus,
+  type InventoryClasificacion,
+  type InventoryItem,
+} from '../../lib/inventory';
 import { getPatient } from '../../lib/patientContext';
 import { Screen } from '../../lib/screen';
-import { colors } from '../../lib/theme';
+import { useAppColors } from '../../lib/ThemeModeProvider';
 import { fonts } from '../../lib/typography';
+import type { AppColors } from '../../lib/theme';
+
+type FilterKey = 'all' | InventoryClasificacion;
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'Todos' },
+  { key: 'proteina', label: 'P · Proteína' },
+  { key: 'medicacion', label: 'M · Medicación' },
+  { key: 'insumo', label: 'I · Insumo' },
+  { key: 'crema', label: 'C · Cremas' },
+];
 
 export default function StockScreen() {
   const router = useRouter();
-  const { role } = useAuth();
-  const isOrganizador = role === 'organizador';
+  const colors = useAppColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { saved, message } = useLocalSearchParams<{ saved?: string; message?: string }>();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftQty, setDraftQty] = useState('');
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<FilterKey>('all');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,46 +77,15 @@ export default function StockScreen() {
     }
   }, [saved, message, router, load]);
 
-  const lowCount = items.filter((i) =>
-    Number(i.cantidad_minima) > 0
-      ? Number(i.cantidad_actual) < Number(i.cantidad_minima)
-      : Number(i.cantidad_actual) <= 0
-  ).length;
+  const filtered = useMemo(
+    () => filterInventoryItems(items, { query: search, clasificacion: filter }),
+    [items, search, filter]
+  );
 
-  const startAdjust = (item: InventoryItem) => {
-    setAdjustError(null);
-    setEditingId(item.id);
-    setDraftQty(String(Number(item.cantidad_actual)));
-  };
-
-  const cancelAdjust = () => {
-    setEditingId(null);
-    setDraftQty('');
-    setAdjustError(null);
-  };
-
-  const saveAdjust = async (item: InventoryItem) => {
-    const qty = parseFloat(draftQty.replace(',', '.'));
-    if (!Number.isFinite(qty) || qty < 0) {
-      setAdjustError('Indica una cantidad válida (0 o más)');
-      return;
-    }
-    setSavingId(item.id);
-    setAdjustError(null);
-    try {
-      await updateInventoryStock(item.id, qty);
-      setItems((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, cantidad_actual: qty } : i))
-      );
-      setToast(`Stock de ${item.nombre} actualizado`);
-      cancelAdjust();
-      setTimeout(() => setToast(null), 5000);
-    } catch (e) {
-      setAdjustError(e instanceof Error ? e.message : 'No se pudo guardar');
-    } finally {
-      setSavingId(null);
-    }
-  };
+  const alertCount = items.filter((i) => {
+    const s = inventoryStockStatus(i);
+    return s === 'low' || s === 'near';
+  }).length;
 
   return (
     <Screen>
@@ -110,10 +94,11 @@ export default function StockScreen() {
           style={styles.container}
           contentContainerStyle={styles.content}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.greenDark} />}
+          keyboardShouldPersistTaps="handled"
         >
           <TabHeader
             title="Stock"
-            subtitle={lowCount > 0 ? `${lowCount} alerta(s) de stock bajo` : 'Inventario de insumos'}
+            subtitle={alertCount > 0 ? `${alertCount} insumo(s) cerca de agotarse` : 'Inventario de insumos'}
           />
 
           {toast ? (
@@ -122,16 +107,47 @@ export default function StockScreen() {
             </View>
           ) : null}
 
+          <TextInput
+            style={styles.search}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Buscar insumo…"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {FILTERS.map((f) => {
+              const active = filter === f.key;
+              return (
+                <Pressable
+                  key={f.key}
+                  onPress={() => setFilter(f.key)}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                >
+                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{f.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
           {loading && items.length === 0 ? (
             <ActivityIndicator color={colors.greenDark} style={{ marginTop: 24 }} />
-          ) : items.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <Text style={styles.empty}>
-              No hay ítems en inventario. Agregá una compra para crear el primer ítem.
+              {items.length === 0
+                ? 'No hay ítems en inventario. Agregá una compra para crear el primer ítem.'
+                : 'Ningún insumo coincide con la búsqueda o el filtro.'}
             </Text>
           ) : (
             <View style={styles.list}>
-              {items.map((item) => (
-                <View key={item.id} style={styles.itemBlock}>
+              {filtered.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => router.push(`/stock/${item.id}`)}
+                  style={({ pressed }) => [styles.itemPress, pressed && styles.itemPressActive]}
+                >
                   <StockBar
                     nombre={item.nombre}
                     actual={Number(item.cantidad_actual)}
@@ -139,42 +155,9 @@ export default function StockScreen() {
                     consumoMensual={Number(item.consumo_mensual ?? 0)}
                     presentacion={item.presentacion}
                     unidad={item.unidad}
+                    clasificacion={item.clasificacion}
                   />
-                  {isOrganizador && editingId === item.id ? (
-                    <View style={styles.adjustPanel}>
-                      <Text style={styles.adjustLabel}>Cantidad actual ({item.unidad})</Text>
-                      <TextInput
-                        style={styles.adjustInput}
-                        value={draftQty}
-                        onChangeText={setDraftQty}
-                        keyboardType="decimal-pad"
-                        placeholderTextColor={colors.textMuted}
-                        autoFocus
-                      />
-                      {adjustError ? <Text style={styles.adjustError}>{adjustError}</Text> : null}
-                      <View style={styles.adjustActions}>
-                        <Pressable style={styles.adjustCancel} onPress={cancelAdjust} disabled={savingId === item.id}>
-                          <Text style={styles.adjustCancelText}>Cancelar</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.adjustSave}
-                          onPress={() => void saveAdjust(item)}
-                          disabled={savingId === item.id}
-                        >
-                          {savingId === item.id ? (
-                            <ActivityIndicator color={colors.white} size="small" />
-                          ) : (
-                            <Text style={styles.adjustSaveText}>Guardar</Text>
-                          )}
-                        </Pressable>
-                      </View>
-                    </View>
-                  ) : isOrganizador ? (
-                    <Pressable style={styles.adjustLink} onPress={() => startAdjust(item)}>
-                      <Text style={styles.adjustLinkText}>Ajustar cantidad actual</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+                </Pressable>
               ))}
             </View>
           )}
@@ -190,62 +173,49 @@ export default function StockScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { flex: 1 },
-  content: { paddingBottom: Platform.OS === 'web' ? 120 : 140 },
-  toast: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    backgroundColor: '#dcfce7',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.green,
-  },
-  toastText: { fontFamily: fonts.bodySemi, color: colors.greenDark, fontSize: 14 },
-  list: { paddingHorizontal: 20 },
-  itemBlock: { marginBottom: 4 },
-  adjustLink: { marginTop: -4, marginBottom: 12, alignSelf: 'flex-start', paddingVertical: 4 },
-  adjustLinkText: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 14,
-    color: colors.pinkDeep,
-    textDecorationLine: 'underline',
-  },
-  adjustPanel: {
-    marginTop: -4,
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.borderSoft,
-    backgroundColor: colors.card,
-  },
-  adjustLabel: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.text, marginBottom: 8 },
-  adjustInput: {
-    borderWidth: 2,
-    borderColor: colors.pinkStrong,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontFamily: fonts.body,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.white,
-  },
-  adjustError: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.error, marginTop: 8 },
-  adjustActions: { flexDirection: 'row', gap: 10, marginTop: 12, justifyContent: 'flex-end' },
-  adjustCancel: { paddingVertical: 10, paddingHorizontal: 14 },
-  adjustCancelText: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.textMuted },
-  adjustSave: {
-    backgroundColor: colors.pinkDeep,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  adjustSaveText: { fontFamily: fonts.title, fontSize: 15, color: colors.white },
-  empty: { fontFamily: fonts.body, color: colors.textMuted, paddingHorizontal: 20, lineHeight: 22 },
-});
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
+    flex: { flex: 1 },
+    container: { flex: 1 },
+    content: { paddingBottom: Platform.OS === 'web' ? 120 : 140 },
+    toast: {
+      marginHorizontal: 20,
+      marginBottom: 12,
+      backgroundColor: colors.upcomingFill,
+      borderRadius: 12,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: colors.green,
+    },
+    toastText: { fontFamily: fonts.bodySemi, color: colors.greenDark, fontSize: 14 },
+    search: {
+      marginHorizontal: 20,
+      marginBottom: 12,
+      borderWidth: 2,
+      borderColor: colors.borderSoft,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontFamily: fonts.body,
+      fontSize: 16,
+      color: colors.text,
+      backgroundColor: colors.card,
+    },
+    filterRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 8 },
+    filterChip: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.borderSoft,
+      backgroundColor: colors.brownLight,
+    },
+    filterChipActive: { backgroundColor: colors.pinkDeep, borderColor: colors.pinkDeep },
+    filterChipText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
+    filterChipTextActive: { color: colors.white },
+    list: { paddingHorizontal: 20 },
+    itemPress: { marginBottom: 0, ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null) },
+    itemPressActive: { opacity: 0.92 },
+    empty: { fontFamily: fonts.body, color: colors.textMuted, paddingHorizontal: 20, lineHeight: 22 },
+  });
+}

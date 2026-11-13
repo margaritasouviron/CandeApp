@@ -31,6 +31,8 @@ type Props = {
   durationBlocks: DurationBlock[];
   scheduled: UpcomingDose[];
   onLogPress?: (careLogId: string) => void;
+  /** Mantener pulsado en un horario vacío del día */
+  onSlotLongPress?: (timeHm: string) => void;
 };
 
 type TimedEntry = {
@@ -250,6 +252,20 @@ function createGridStyles(colors: AppColors) {
       marginRight: 4,
       position: 'relative',
     },
+    slotPressTarget: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      zIndex: 0,
+    },
+    durationLayer: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      zIndex: 2,
+    },
     instantLayer: {
       position: 'absolute',
       left: 0,
@@ -290,7 +306,7 @@ function createGridStyles(colors: AppColors) {
       left: 0,
       right: 0,
       borderLeftWidth: 4,
-      zIndex: 1,
+      zIndex: 2,
       paddingHorizontal: 6,
       paddingVertical: 4,
       justifyContent: 'flex-start',
@@ -298,6 +314,7 @@ function createGridStyles(colors: AppColors) {
       ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
     },
     durationLabel: { fontFamily: fonts.bodySemi, fontSize: 11, lineHeight: 14 },
+    durationSub: { fontFamily: fonts.body, fontSize: 10, lineHeight: 12, marginTop: 2, opacity: 0.92 },
     scheduledTitle: { fontFamily: fonts.title, fontSize: 12, color: colors.greenDark },
     scheduledTimeRight: {
       fontFamily: fonts.bodySemi,
@@ -344,7 +361,11 @@ function createGridStyles(colors: AppColors) {
   });
 }
 
-export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPress }: Props) {
+function hourSlotToHm(hour: number) {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPress, onSlotLongPress }: Props) {
   const colors = useAppColors();
   const styles = useMemo(() => createGridStyles(colors), [colors]);
   const dayScheduled = scheduled.filter((d) => sameCalendarDay(dateStr, d.programadoPara));
@@ -368,6 +389,21 @@ export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPre
       ))}
 
       <View style={[styles.gridArea, { height: GRID_HEIGHT }]}>
+        {onSlotLongPress
+          ? Array.from({ length: 24 }, (_, hour) => (
+              <Pressable
+                key={`slot-press-${hour}`}
+                style={[styles.slotPressTarget, { top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }]}
+                onLongPress={() => onSlotLongPress(hourSlotToHm(hour))}
+                delayLongPress={Platform.OS === 'web' ? 500 : 400}
+                {...(Platform.OS === 'web' ? ({ onContextMenu: (e: { preventDefault: () => void }) => {
+                  e.preventDefault();
+                  onSlotLongPress(hourSlotToHm(hour));
+                } } as object) : {})}
+              />
+            ))
+          : null}
+        <View style={styles.durationLayer} pointerEvents="box-none">
         {durationBlocks.map((block, idx) => {
           const layout = toTimedLayout(dateStr, block.inicio, block.fin);
           if (!layout) return null;
@@ -375,9 +411,12 @@ export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPre
           const fill = EVENT_SHADE_COLORS[block.tipo] ?? colors.sleepShade;
           const linkedLog = logs.find((l) => l.id === block.careLogId);
           const label =
-            block.tipo === 'terapia' && block.subtipo
-              ? EVENT_LABELS.terapia
-              : linkedLog?.title || EVENT_LABELS[block.tipo] || block.tipo;
+            block.tipo === 'turno_medico'
+              ? block.title ?? linkedLog?.title ?? EVENT_LABELS.turno_medico
+              : block.tipo === 'terapia' && block.subtipo
+                ? EVENT_LABELS.terapia
+                : block.title ?? linkedLog?.title ?? EVENT_LABELS[block.tipo] ?? block.tipo;
+          const timeLine = `${formatEventClock(block.inicio)} – ${formatEventClock(block.fin)}`;
           return (
             <Pressable
               key={`dur-${block.careLogId}-${idx}`}
@@ -394,11 +433,17 @@ export function DayTimeGrid({ dateStr, logs, durationBlocks, scheduled, onLogPre
               disabled={!onLogPress}
             >
               <Text style={[styles.durationLabel, { color: accent }]} numberOfLines={2}>
-                {label}
+                {block.tipo === 'turno_medico' ? `Turno · ${label}` : label}
               </Text>
+              {layout.height >= 36 ? (
+                <Text style={[styles.durationSub, { color: accent }]} numberOfLines={1}>
+                  {timeLine}
+                </Text>
+              ) : null}
             </Pressable>
           );
         })}
+        </View>
 
         {instantMarkers.map((marker) => {
           const lineTop = marker.top - INSTANT_LINE_THICKNESS / 2;
